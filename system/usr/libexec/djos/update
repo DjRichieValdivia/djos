@@ -18,6 +18,10 @@ if [ "${1:-}" = --root ]; then
         normal)
             echo "Checking for updates…"
             bootc upgrade && echo && echo "Done. If there was anything new, it will be applied the next time you restart."
+            if [ -s /etc/djos/apps.conf ]; then
+                echo; echo "Checking your apps…"
+                /usr/libexec/djos/app-update
+            fi
             ;;
         major)
             v=$(cat /var/lib/djos/new-version 2>/dev/null)

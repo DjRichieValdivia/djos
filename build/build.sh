@@ -59,7 +59,7 @@ systemctl disable \
     smartd.service
 # nunca: actualizar y reiniciar solo (bootc-fetch-apply-updates reinicia la PC) ni el ahorro de energía de laptops
 systemctl mask bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service nvidia-powerd.service
-systemctl enable djos-rtirq.service djos-firstboot.service djos-users.path djos-update-check.timer
+systemctl enable djos-rtirq.service djos-firstboot.service djos-users.path djos-update-check.timer djos-app-update.timer
 systemctl --global enable djos-update-notify.timer
 
 # --- 5. Escritorio: sin ubicación automática; sin avisos encima de Richie DJ en pantalla completa

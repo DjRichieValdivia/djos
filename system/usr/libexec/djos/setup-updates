@@ -12,6 +12,7 @@ if [ "${1:-}" = --root ]; then
         chmod 0600 /etc/ostree/auth.json
         echo "OK"
         bootc upgrade --check 2>&1 | tail -2
+        [ -s /etc/djos/apps.conf ] && /usr/libexec/djos/app-update
     fi
     exit 0
 fi

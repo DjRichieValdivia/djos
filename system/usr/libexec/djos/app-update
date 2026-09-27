@@ -1,0 +1,48 @@
+#!/usr/bin/bash
+# DJOS: actualiza los programas privados que llegan como imagen de GitHub (p. ej. Richie DJ).
+# Se listan en /etc/djos/apps.conf (propio de cada PC, no está en la imagen), una línea por programa:
+#     <nombre> <imagen> <carpeta> <proceso>
+#     richiedj ghcr.io/usuario/richiedj:latest /var/opt/richiedj Richie DJ
+# La imagen trae el programa en /app. Solo se baja lo que cambió (capas); si el programa está abierto no se toca y
+# se reintenta en la próxima vuelta (nunca se reemplaza mientras suena). El cambio es atómico: carpeta nueva y
+# renombrar.
+set -u
+conf=${DJOS_APPS_CONF:-/etc/djos/apps.conf}
+[ -r "$conf" ] || exit 0
+auth=(); [ -s /etc/ostree/auth.json ] && auth=(--authfile /etc/ostree/auth.json)
+
+while read -r name image dir proc; do
+    case "$name" in ''|\#*) continue ;; esac
+    [ -n "$image" ] && [ -n "$dir" ] || continue
+    # primero solo se pregunta qué versión hay (sin bajar nada); si es la instalada, no se hace nada más
+    case "$image" in
+        localhost/*) new=$(podman image inspect --format '{{.Digest}}' "$image" 2>/dev/null) ;;   # pruebas locales
+        *) new=$(skopeo inspect "${auth[@]}" --retry-times 2 --format '{{.Digest}}' "docker://$image" 2>/dev/null) ;;
+    esac
+    [ -n "$new" ] || { echo "$name: could not reach $image"; continue; }
+    [ -f "$dir/.djos-digest" ] && [ "$(cat "$dir/.djos-digest")" = "$new" ] && continue
+    if pgrep -x "${proc:-$name}" > /dev/null; then
+        echo "$name: running, will update next time"; continue
+    fi
+    case "$image" in
+        localhost/*) ;;
+        *) if ! podman pull -q "${auth[@]}" "$image" > /dev/null 2>&1; then
+               echo "$name: could not download $image"; continue
+           fi ;;
+    esac
+    tmp="$dir.new"; rm -rf "$tmp"; mkdir -p "$tmp"
+    cid=$(podman create "$image" /app) || continue
+    if podman export "$cid" | tar -x -C "$tmp" --strip-components=1 app; then
+        echo "$new" > "$tmp/.djos-digest"
+        rm -rf "$dir.old"
+        [ -d "$dir" ] && mv "$dir" "$dir.old"
+        mv "$tmp" "$dir" && rm -rf "$dir.old"
+        restorecon -RF "$dir" 2> /dev/null
+        echo "$name: updated"
+    else
+        rm -rf "$tmp"; echo "$name: could not unpack the update"
+    fi
+    podman rm -f "$cid" > /dev/null 2>&1
+done < "$conf"
+podman image prune -f > /dev/null 2>&1
+exit 0
