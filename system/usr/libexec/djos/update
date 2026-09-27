@@ -10,6 +10,10 @@ pause() { echo; read -r -p "Press Enter to close this window." _; }
 if [ "${1:-}" = --root ]; then
     ref=$(bootc status --json | jq -r '.status.booted.image.image.image // empty')
     repo=${ref%:*}
+    if [ ! -s /etc/ostree/auth.json ]; then
+        echo "Updates are not set up yet: open \"Set Up DJOS Updates\" from the app menu first."
+        exit 0
+    fi
     case "${2:-}" in
         normal)
             echo "Checking for updates…"
