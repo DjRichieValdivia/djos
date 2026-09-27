@@ -9,7 +9,8 @@
 set -u
 conf=${DJOS_APPS_CONF:-/etc/djos/apps.conf}
 [ -r "$conf" ] || exit 0
-auth=(); [ -s /etc/ostree/auth.json ] && auth=(--authfile /etc/ostree/auth.json)
+authfile=${DJOS_AUTHFILE:-/etc/ostree/auth.json}
+auth=(); [ -s "$authfile" ] && auth=(--authfile "$authfile")
 
 while read -r name image dir proc; do
     case "$name" in ''|\#*) continue ;; esac
