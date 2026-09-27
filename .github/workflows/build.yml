@@ -77,7 +77,19 @@ jobs:
           sudo podman build --pull=newer \
             --build-arg FEDORA_VERSION=${{ matrix.version }} \
             --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
-            -t "$imagen:${{ matrix.version }}" .
+            -t "$imagen:${{ matrix.version }}-armado" .
+
+      - name: Reorganizar en bloques (actualizaciones más chicas; ~2 GB menos)
+        run: |
+          sudo podman run --rm --privileged \
+            -v /var/lib/containers:/var/lib/containers \
+            --security-opt label=disable \
+            "$IMAGEN:${{ matrix.version }}-armado" \
+            rpm-ostree compose build-chunked-oci --bootc --format-version=1 \
+              --from="$IMAGEN:${{ matrix.version }}-armado" \
+              --output="containers-storage:$IMAGEN:${{ matrix.version }}"
+          sudo podman rmi "$IMAGEN:${{ matrix.version }}-armado"
+          sudo podman run --rm --entrypoint bootc "$IMAGEN:${{ matrix.version }}" container lint
 
       - name: Subir la imagen (privada)
         env:
