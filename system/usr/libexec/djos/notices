@@ -28,4 +28,15 @@ if [ ! -e "$marker" ] && [ -e /usr/local/share/applications/richiedj.desktop ]; 
         mkdir -p "${marker%/*}" && touch "$marker"
     fi
 fi
+
+# ícono "DJOS Updates" en la barra: una sola vez por usuario (si después lo saca, se respeta)
+marker=${XDG_STATE_HOME:-$HOME/.local/state}/djos/updates-widget-added
+if [ ! -e "$marker" ]; then
+    script=$(cat /usr/share/djos/add-updates-widget.js)
+    if busctl --user call org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell evaluateScript s "$script" > /dev/null 2>&1 \
+       || gdbus call --session --dest org.kde.plasmashell --object-path /PlasmaShell \
+              --method org.kde.PlasmaShell.evaluateScript "$script" > /dev/null 2>&1; then
+        mkdir -p "${marker%/*}" && touch "$marker"
+    fi
+fi
 exit 0

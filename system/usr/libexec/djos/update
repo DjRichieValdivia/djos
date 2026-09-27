@@ -15,13 +15,14 @@ if [ "${1:-}" = --root ]; then
         exit 0
     fi
     case "${2:-}" in
-        normal)
+        normal|check)   # check: lo mismo, desde el panel "DJOS Updates" (sin terminal)
             echo "Checking for updates…"
             bootc upgrade && echo && echo "Done. If there was anything new, it will be applied the next time you restart."
             if [ -s /etc/djos/apps.conf ]; then
                 echo; echo "Checking your apps…"
                 /usr/libexec/djos/app-update
             fi
+            mkdir -p /var/lib/djos && touch /var/lib/djos/last-check
             ;;
         major)
             v=$(cat /var/lib/djos/new-version 2>/dev/null)

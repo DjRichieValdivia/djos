@@ -1,0 +1,14 @@
+{
+    "KPlugin": {
+        "Authors": [ { "Name": "DJOS" } ],
+        "Category": "System Information",
+        "Description": "DJOS, Richie DJ and app updates",
+        "Icon": "system-software-update",
+        "Id": "org.djos.updates",
+        "License": "GPL-2.0-or-later",
+        "Name": "DJOS Updates",
+        "Version": "1.0"
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

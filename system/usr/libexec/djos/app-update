@@ -23,6 +23,16 @@ in_use() {   # $1 carpeta, $2 nombre del proceso
     return 1
 }
 
+# estado de cada programa para el panel "DJOS Updates": up-to-date, updated, ready (bajado, se instala al cerrar
+# el programa), waiting (abierto o sonando), unreachable, error
+statedir=${DJOS_STATE_DIR:-/var/lib/djos}/apps
+status() {
+    mkdir -p "$statedir"
+    jq -n --arg id "$name" --arg name "$proc" --arg state "$1" --argjson time "$(date +%s)" \
+        '{id: $id, name: $name, state: $state, time: $time}' > "$statedir/$name.json.tmp" \
+        && chmod 644 "$statedir/$name.json.tmp" && mv "$statedir/$name.json.tmp" "$statedir/$name.json"
+}
+
 while read -r name image dir proc; do
     case "$name" in ''|\#*) continue ;; esac
     [ -n "$image" ] && [ -n "$dir" ] || continue
@@ -32,10 +42,10 @@ while read -r name image dir proc; do
         localhost/*) new=$(podman image inspect --format '{{.Digest}}' "$image" 2>/dev/null) ;;   # pruebas locales
         *) new=$(skopeo inspect "${auth[@]}" --retry-times 2 --format '{{.Digest}}' "docker://$image" 2>/dev/null) ;;
     esac
-    [ -n "$new" ] || { echo "$name: could not reach $image"; continue; }
-    [ -f "$dir/.djos-digest" ] && [ "$(cat "$dir/.djos-digest")" = "$new" ] && continue
+    [ -n "$new" ] || { echo "$name: could not reach $image"; status unreachable; continue; }
+    [ -f "$dir/.djos-digest" ] && [ "$(cat "$dir/.djos-digest")" = "$new" ] && { status up-to-date; continue; }
     if in_use "$dir" "$proc"; then
-        echo "$name: in use, will update next time"; continue
+        echo "$name: in use, will update next time"; status waiting; continue
     fi
     tmp="$dir.new"
     # si una vuelta anterior ya bajó y desarmó esta misma versión, se usa directamente
@@ -43,21 +53,21 @@ while read -r name image dir proc; do
         case "$image" in
             localhost/*) ;;
             *) if ! podman pull -q "${auth[@]}" "$image" > /dev/null 2>&1; then
-                   echo "$name: could not download $image"; continue
+                   echo "$name: could not download $image"; status error; continue
                fi ;;
         esac
         rm -rf "$tmp"; mkdir -p "$tmp"
         cid=$(podman create "$image" /app) || continue
         if ! podman export "$cid" | tar -x -C "$tmp" --strip-components=1 app; then
             podman rm -f "$cid" > /dev/null 2>&1
-            rm -rf "$tmp"; echo "$name: could not unpack the update"; continue
+            rm -rf "$tmp"; echo "$name: could not unpack the update"; status error; continue
         fi
         podman rm -f "$cid" > /dev/null 2>&1
         echo "$new" > "$tmp/.djos-digest"
     fi
     # se vuelve a mirar justo antes de cambiar (la descarga pudo tardar y el usuario pudo empezar a pinchar)
     if in_use "$dir" "$proc"; then
-        echo "$name: in use, update downloaded and ready for next time"; continue
+        echo "$name: in use, update downloaded and ready for next time"; status ready; continue
     fi
     rm -rf "$dir.old"
     [ -d "$dir" ] && mv "$dir" "$dir.old"
@@ -69,7 +79,7 @@ while read -r name image dir proc; do
         gtk-update-icon-cache -q /usr/local/share/icons/hicolor 2> /dev/null
     fi
     restorecon -RF "$dir" 2> /dev/null
-    echo "$name: updated"
+    echo "$name: updated"; status updated
 done < "$conf"
 podman image prune -f > /dev/null 2>&1
 exit 0
