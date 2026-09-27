@@ -1,0 +1,9 @@
+[Unit]
+Description=DJOS: add new users to the audio groups
+
+[Path]
+PathChanged=/etc/passwd
+Unit=djos-users.service
+
+[Install]
+WantedBy=multi-user.target

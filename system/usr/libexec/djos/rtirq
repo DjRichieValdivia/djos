@@ -1,0 +1,48 @@
+#!/usr/bin/bash
+# DJOS: prioridad y núcleo para las interrupciones de las placas de sonido.
+# Con threadirqs cada interrupción corre en un hilo "irq/N-nombre" (por defecto todos con prioridad FIFO 50).
+#   - el controlador USB donde está enchufada una placa de audio (consola DJ, interfaz): FIFO 90
+#   - el sonido de la placa madre: FIFO 85
+#   (por encima del audio de Richie DJ, 80, y del MIDI, 70; los demás USB, discos o cámaras no se tocan)
+# Procesadores híbridos: esas interrupciones van a un núcleo de rendimiento (P); todas las demás (placa de video,
+# red, disco) a los núcleos de eficiencia (E), lejos del audio. Se vuelve a correr al enchufar una placa.
+set -u
+
+P=$(cat /sys/devices/cpu_core/cpus 2>/dev/null)
+E=$(cat /sys/devices/cpu_atom/cpus 2>/dev/null)
+aud=""
+if [ -n "$P" ] && [ -n "$E" ]; then
+    aud=${P##*[,-]}   # el último núcleo P (nunca el 0)
+    for d in /proc/irq/[0-9]*; do
+        echo "$E" > "$d/smp_affinity_list" 2>/dev/null   # las del disco NVMe las maneja el núcleo: se ignoran
+    done
+fi
+
+boost() {   # boost <dispositivo PCI> <prioridad>
+    local pci=$1 prio=$2 irq pid
+    for irq in $(ls "/sys/bus/pci/devices/$pci/msi_irqs" 2>/dev/null; cat "/sys/bus/pci/devices/$pci/irq" 2>/dev/null); do
+        [ "$irq" = 0 ] && continue
+        [ -n "$aud" ] && echo "$aud" > "/proc/irq/$irq/smp_affinity_list" 2>/dev/null
+        for pid in $(ps -eo pid=,comm= | awk -v p="irq/$irq-" 'index($2, p) == 1 {print $1}'); do
+            chrt -f -p "$prio" "$pid" && echo "djos-rtirq: $pci IRQ $irq -> FIFO $prio${aud:+, CPU $aud}"
+        done
+    done
+}
+
+declare -A done_pci
+for card in /sys/class/sound/card[0-9]*; do
+    dev=$(readlink -f "$card/device") || continue
+    case "$dev" in
+        */usb[0-9]*/*)   # placa USB: se prioriza su controlador USB (el último dispositivo PCI antes de /usbN)
+            pci=$(grep -o '0000:[0-9a-f]\{2\}:[0-9a-f]\{2\}\.[0-9a-f]' <<< "${dev%%/usb[0-9]*}" | tail -1)
+            prio=90 ;;
+        *)               # placa PCI (sonido de la placa madre); el audio HDMI de la placa de video no
+            pci=$(basename "$dev")
+            [ "$(cat "$dev/vendor" 2>/dev/null)" = 0x10de ] && continue
+            prio=85 ;;
+    esac
+    [ -n "$pci" ] && [ -z "${done_pci[$pci]:-}" ] || continue
+    done_pci[$pci]=1
+    boost "$pci" "$prio"
+done
+exit 0

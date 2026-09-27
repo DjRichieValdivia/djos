@@ -1,0 +1,3 @@
+# DJOS: el disco se formatea en XFS (rápido y robusto; el sistema ya tiene versiones para volver atrás)
+[install.filesystem.root]
+type = "xfs"

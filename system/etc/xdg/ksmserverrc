@@ -1,0 +1,3 @@
+# DJOS: al iniciar sesión el escritorio arranca limpio (no reabre programas de la sesión anterior)
+[General]
+loginMode=emptySession

@@ -1,0 +1,6 @@
+[Unit]
+Description=DJOS: new release notification
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/djos/update-notify

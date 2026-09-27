@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Install Audio Apps
+Comment=DAWs, editors, OBS and DJ tools from Flathub
+Icon=system-software-install
+Exec=konsole -e ujust djos-apps
+Categories=AudioVideo;Audio;

@@ -1,0 +1,11 @@
+[Unit]
+Description=DJOS: real-time priority for sound card interrupts
+After=sound.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/djos/rtirq
+
+[Install]
+WantedBy=multi-user.target

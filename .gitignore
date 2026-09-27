@@ -1,0 +1,12 @@
+# imágenes de disco y pruebas
+*.raw
+*.img
+*.qcow2
+*.iso
+out/
+# nunca subir credenciales
+*.key
+*.pem
+*.der
+.env
+auth.json

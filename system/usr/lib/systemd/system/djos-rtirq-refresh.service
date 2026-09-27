@@ -1,0 +1,6 @@
+[Unit]
+Description=DJOS: real-time priority for a newly connected sound card
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/djos/rtirq

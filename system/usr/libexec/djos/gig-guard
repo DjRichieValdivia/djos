@@ -1,0 +1,8 @@
+#!/usr/bin/sh
+# DJOS: ¿se puede hacer mantenimiento ahora? 0 = sí, 1 = no (está sonando un set).
+# Richie DJ pide baja latencia al procesador (/dev/cpu_dma_latency) mientras suena; si lo tiene abierto alguien
+# que no sea tuned, las actualizaciones y el mantenimiento esperan a la próxima vuelta.
+for p in $(fuser /dev/cpu_dma_latency 2>/dev/null); do
+    [ "$(cat /proc/$p/comm 2>/dev/null)" = tuned ] || exit 1
+done
+exit 0

@@ -1,0 +1,50 @@
+#!/usr/bin/bash
+# DJOS: botón "Update DJOS" (se abre en una terminal)
+#   update           muestra la versión y ofrece buscar actualizaciones o pasar a la versión nueva
+#   update major     pasa directo a la versión nueva (desde el aviso)
+#   update --root …  lo hace como administrador (lo llama pkexec)
+set -u
+
+pause() { echo; read -r -p "Press Enter to close this window." _; }
+
+if [ "${1:-}" = --root ]; then
+    ref=$(bootc status --json | jq -r '.status.booted.image.image.image // empty')
+    repo=${ref%:*}
+    case "${2:-}" in
+        normal)
+            echo "Checking for updates…"
+            bootc upgrade && echo && echo "Done. If there was anything new, it will be applied the next time you restart."
+            ;;
+        major)
+            v=$(cat /var/lib/djos/new-version 2>/dev/null)
+            [ -n "$v" ] || { echo "No new version is available."; exit 0; }
+            echo "Downloading DJOS $v (this takes a few minutes)…"
+            bootc switch "$repo:$v" && rm -f /var/lib/djos/new-version \
+                && echo && echo "Done. DJOS $v will be applied the next time you restart." \
+                && echo "If something doesn't work, pick the previous version in the boot menu."
+            ;;
+    esac
+    exit 0
+fi
+
+if [ "${1:-}" = major ]; then
+    pkexec /usr/libexec/djos/update --root major
+    pause; exit 0
+fi
+
+. /etc/os-release
+echo "$PRETTY_NAME"
+rpm-ostree status -b 2>/dev/null | sed -n 's/^ *Version: /Installed version: /p' | head -1
+echo
+new=$(cat /var/lib/djos/new-version 2>/dev/null)
+echo "1) Check for updates now (applied on next restart)"
+[ -n "$new" ] && echo "2) Upgrade to DJOS $new (new Fedora release)"
+echo "0) Exit"
+echo
+read -r -p "Choose an option: " op
+case "$op" in
+    1) pkexec /usr/libexec/djos/update --root normal ;;
+    2) [ -n "$new" ] && pkexec /usr/libexec/djos/update --root major ;;
+    *) exit 0 ;;
+esac
+pause

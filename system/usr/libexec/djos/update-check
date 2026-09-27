@@ -1,0 +1,15 @@
+#!/usr/bin/bash
+# DJOS: se fija si hay una versión grande nueva recomendada (p. ej. Fedora 45, publicada hace 4 semanas o más)
+# y la anota para que aparezca el aviso con el botón. No instala nada.
+set -u
+state=/var/lib/djos
+mkdir -p "$state"
+ref=$(bootc status --json 2>/dev/null | jq -r '.status.booted.image.image.image // empty')
+[ -n "$ref" ] || exit 0
+repo=${ref%:*}; cur=${ref##*:}
+case "$cur" in ''|*[!0-9]*) exit 0 ;; esac
+auth=(); [ -f /etc/ostree/auth.json ] && auth=(--authfile /etc/ostree/auth.json)
+rec=$(skopeo inspect "${auth[@]}" --retry-times 2 "docker://$repo:recommended" 2>/dev/null | jq -r '.Labels["djos.fedora"] // empty')
+case "$rec" in ''|*[!0-9]*) exit 0 ;; esac
+if [ "$rec" -gt "$cur" ]; then echo "$rec" > "$state/new-version"; else rm -f "$state/new-version"; fi
+exit 0

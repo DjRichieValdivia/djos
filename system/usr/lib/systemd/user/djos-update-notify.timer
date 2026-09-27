@@ -1,0 +1,9 @@
+[Unit]
+Description=DJOS: new release notification (at login and daily)
+
+[Timer]
+OnStartupSec=15min
+OnUnitActiveSec=1d
+
+[Install]
+WantedBy=timers.target

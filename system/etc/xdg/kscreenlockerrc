@@ -1,0 +1,4 @@
+# DJOS: la pantalla no se bloquea sola (se puede bloquear a mano con Meta+L)
+[Daemon]
+Autolock=false
+LockOnResume=false

@@ -1,0 +1,12 @@
+#!/usr/bin/bash
+# DJOS: aviso con botón cuando hay una versión grande nueva (lo anota djos-update-check)
+set -u
+f=/var/lib/djos/new-version
+[ -r "$f" ] || exit 0
+v=$(cat "$f")
+ans=$(notify-send -a DJOS -i system-software-update -w \
+    --action=upgrade="Upgrade now" --action=later="Later" \
+    "DJOS $v is available" \
+    "New Fedora release, already tested for 4 weeks. It downloads in a few minutes and is applied on restart. Do it when you have no gigs coming up.")
+[ "$ans" = upgrade ] && exec konsole -e /usr/libexec/djos/update major
+exit 0

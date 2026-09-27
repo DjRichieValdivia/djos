@@ -1,0 +1,106 @@
+name: Armar DJOS
+
+on:
+  schedule:
+    - cron: "20 6 * * *"   # todos los días, después de que Universal Blue publica la base del día
+  push:
+    branches: [main]
+    paths-ignore: ["**.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: armar-djos
+  cancel-in-progress: true
+
+env:
+  BASE: ghcr.io/ublue-os/kinoite-nvidia
+  PRIMERA_VERSION: 44    # DJOS empezó con Fedora 44: las anteriores no se arman
+  DIAS_DE_ESPERA: 28     # una versión nueva de Fedora se recomienda recién 4 semanas después de salir
+
+jobs:
+  planear:
+    runs-on: ubuntu-24.04
+    outputs:
+      versiones: ${{ steps.p.outputs.versiones }}
+      recomendada: ${{ steps.p.outputs.recomendada }}
+    steps:
+      - id: p
+        run: |
+          tags=$(skopeo list-tags "docker://$BASE" | jq -r '.Tags[]')
+          limite=$(date -u -d "$DIAS_DE_ESPERA days ago" +%Y%m%d)
+          reciente=$(date -u -d "4 days ago" +%Y%m%d)
+          rec=""; vivas=""
+          for m in $(echo "$tags" | grep -E '^[0-9]+$' | sort -n); do
+            [ "$m" -ge "$PRIMERA_VERSION" ] || continue
+            fechas=$(echo "$tags" | sed -n "s/^$m-\([0-9]\{8\}\)$/\1/p" | sort)
+            [ -n "$fechas" ] || continue
+            [ "$(echo "$fechas" | tail -1)" -ge "$reciente" ] || continue   # Universal Blue ya no la actualiza
+            vivas="$vivas $m"
+            [ "$(echo "$fechas" | head -1)" -le "$limite" ] && rec=$m       # existe hace 4 semanas o más
+          done
+          [ -n "$rec" ] || rec=$PRIMERA_VERSION
+          # la recomendada todos los días; la anterior (para quien todavía no apretó el botón) los domingos
+          sel="$rec"
+          anterior=$((rec - 1))
+          if echo " $vivas " | grep -q " $anterior " && { [ "$(date -u +%u)" = 7 ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; }; then
+            sel="$sel $anterior"
+          fi
+          echo "vivas:$vivas  recomendada: $rec  se arman: $sel"
+          echo "recomendada=$rec" >> "$GITHUB_OUTPUT"
+          echo "versiones=$(printf '%s\n' $sel | jq -Rsc 'split("\n") | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
+
+  armar:
+    needs: planear
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.planear.outputs.versiones) }}
+    steps:
+      - name: Liberar espacio en disco
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /usr/local/share/boost /usr/share/swift
+          sudo docker system prune -af > /dev/null
+          df -h /
+
+      - uses: actions/checkout@v4
+
+      - name: Armar la imagen (Fedora ${{ matrix.version }})
+        run: |
+          imagen="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/djos"
+          echo "IMAGEN=$imagen" >> "$GITHUB_ENV"
+          sudo podman build --pull=newer \
+            --build-arg FEDORA_VERSION=${{ matrix.version }} \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            -t "$imagen:${{ matrix.version }}" .
+
+      - name: Subir la imagen (privada)
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ matrix.version }}
+          RECOMENDADA: ${{ needs.planear.outputs.recomendada }}
+        run: |
+          tags="$VERSION $VERSION-$(date -u +%Y%m%d)"
+          [ "$VERSION" = "$RECOMENDADA" ] && tags="$tags recommended latest"
+          printf '%s' "$TOKEN" | sudo podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          for t in $tags; do
+            sudo podman tag "$IMAGEN:$VERSION" "$IMAGEN:$t"
+            sudo podman push "$IMAGEN:$t"
+          done
+          sudo podman logout ghcr.io
+
+  limpiar:
+    needs: armar
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Borrar versiones viejas (quedan las últimas 14)
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: djos
+          package-type: container
+          min-versions-to-keep: 14

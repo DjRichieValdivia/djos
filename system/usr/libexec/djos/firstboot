@@ -1,0 +1,65 @@
+#!/usr/bin/bash
+# DJOS: tareas de arranque (rápidas; si ya están hechas no hacen nada)
+#   groups  los usuarios de la PC entran a los grupos audio y pipewire (tiempo real para Richie DJ, DAWs y PipeWire)
+#   name    nombre de la PC: djos
+#   efi     entrada "DJOS" en el arranque de la placa madre, primera en el orden
+#   mok     con Secure Boot activado: pide autorizar la clave del driver de NVIDIA (una vez, al reiniciar)
+set -u
+log() { echo "djos: $*"; }
+
+groups() {
+    local g u
+    for g in audio pipewire; do
+        grep -q "^$g:" /etc/group || grep "^$g:" /usr/lib/group >> /etc/group
+        [ -f /etc/gshadow ] && { grep -q "^$g:" /etc/gshadow || echo "$g:!::" >> /etc/gshadow; }
+    done
+    awk -F: '$3 >= 1000 && $3 < 60000 && $7 !~ /(nologin|false)$/ {print $1}' /etc/passwd | while read -r u; do
+        for g in audio pipewire; do
+            id -nG "$u" | tr ' ' '\n' | grep -qx "$g" && continue
+            usermod -aG "$g" "$u" && log "$u added to group $g"
+        done
+    done
+}
+
+efi() {
+    [ -d /sys/firmware/efi/efivars ] && command -v efibootmgr >/dev/null || return 0
+    local root disk esp part puuid n
+    root=$(findmnt -no SOURCE /sysroot 2>/dev/null)
+    [ -b "$root" ] || return 0
+    disk=$(lsblk -no PKNAME "$root" | head -1)
+    esp=$(lsblk -lnpo NAME,PARTTYPE "/dev/$disk" | awk 'tolower($2) == "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" {print $1; exit}')
+    [ -n "$esp" ] || return 0
+    part=$(cat "/sys/class/block/$(basename "$esp")/partition")
+    puuid=$(lsblk -no PARTUUID "$esp" | tr 'A-Z' 'a-z')
+    # la entrada "Fedora" que crea el arranque de respaldo de shim en ESTE disco se reemplaza por "DJOS"
+    for n in $(efibootmgr -v 2>/dev/null | tr 'A-Z' 'a-z' \
+               | awk -v u="$puuid" 'u != "" && $2 == "fedora" && index($0, u) {print substr($1, 5, 4)}'); do
+        efibootmgr -b "$n" -B >/dev/null && log "removed firmware entry Fedora ($n) for this disk"
+    done
+    efibootmgr 2>/dev/null | grep -qE '^Boot[0-9A-Fa-f]{4}\*? DJOS([[:space:]]|$)' && return 0
+    efibootmgr --create --disk "/dev/$disk" --part "$part" --label DJOS --loader '\EFI\fedora\shimx64.efi' >/dev/null \
+        && log "created firmware boot entry DJOS (first in boot order)"
+}
+
+name() {
+    # nombre de la PC en la red: "djos" (si ya se eligió otro, se respeta)
+    [ -s /etc/hostname ] || hostnamectl set-hostname djos
+}
+
+mok() {
+    command -v mokutil >/dev/null || return 0
+    mokutil --sb-state 2>/dev/null | grep -qi enabled || return 0
+    local key=/etc/pki/akmods/certs/akmods-ublue.der
+    [ -f "$key" ] || return 0
+    mokutil --test-key "$key" 2>&1 | grep -qi "already enrolled" && return 0
+    mokutil --list-new 2>/dev/null | grep -q . && return 0
+    mokutil --timeout -1
+    # contraseña pública de Universal Blue para confirmar la clave en la pantalla azul (MokManager)
+    printf 'universalblue\nuniversalblue\n' | mokutil --import "$key" \
+        && log "NVIDIA driver key queued: on next reboot choose Enroll MOK -> Continue -> Yes -> password universalblue"
+}
+
+case "${1:-all}" in
+    groups) groups ;;
+    all) groups; name; efi; mok ;;
+esac

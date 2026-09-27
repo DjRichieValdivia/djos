@@ -1,0 +1,68 @@
+#!/usr/bin/bash
+# DJOS: test de latencia del sistema (qué tan listo está para audio en tiempo real sin cortes).
+# Uso: sudo djos-latency-test [minutos]   (20 por defecto). Resultados en /var/lib/djos/latency/<fecha>/
+set -u
+[ "$(id -u)" = 0 ] || { echo "Run it as administrator: sudo djos-latency-test [minutes]"; exit 1; }
+M=${1:-20}
+[ "$M" -ge 8 ] 2>/dev/null || M=8
+OUT=/var/lib/djos/latency/$(date +%F-%H%M)
+mkdir -p "$OUT"; cd "$OUT" || exit 1
+P=$(cat /sys/devices/cpu_core/cpus 2>/dev/null || cat /sys/devices/system/cpu/online)
+E=$(cat /sys/devices/cpu_atom/cpus 2>/dev/null)
+say() { echo "== $*"; }
+
+say "DJOS latency test: about $M minutes. Keep the PC plugged in; you can keep using it lightly."
+{
+    echo "kernel: $(uname -r)"; echo "cmdline: $(cat /proc/cmdline)"
+    echo "preempt: $(cat /sys/kernel/debug/sched/preempt 2>/dev/null)"
+    tuned-adm active; echo "P-cores: $P  E-cores: ${E:-none}"
+    grep -H . /sys/devices/system/cpu/cpu0/cpuidle/state*/name /sys/devices/system/cpu/cpu0/cpuidle/state*/latency 2>/dev/null
+    lsusb -t; cat /proc/asound/cards
+    for s in /proc/asound/card*/stream0; do echo "--- $s"; cat "$s"; done 2>/dev/null
+    ps -eLo pid,cls,rtprio,psr,comm | awk '$2 ~ /FF|RR/'
+} > inventory.txt 2>&1
+
+# cortes de audio (xruns) de cualquier programa, contados en el núcleo mientras dura el test
+T=/sys/kernel/tracing
+xr=0
+if echo 'p:djos/xrun __snd_pcm_xrun' >> $T/kprobe_events 2>/dev/null; then
+    echo 1 > $T/events/djos/xrun/enable; cat $T/trace_pipe > xruns.txt & xr=$!
+fi
+
+say "1/4 firmware and hardware noise (2 min)"
+hwlatdetect --duration=120 --threshold=10 > hwlat.txt 2>&1
+
+say "2/4 idle timer latency ($((M / 4)) min)"
+cyclictest -m -S -p95 -i200 -q -D$((M / 4))m > cyc-idle.txt 2>&1
+
+say "3/4 timer latency under full CPU, memory and disk load ($((M / 2)) min)"
+stress-ng --cpu 0 --vm 2 --vm-bytes 2G --hdd 1 --hdd-bytes 1G --timeout $((M / 2))m > stress.txt 2>&1 &
+cyclictest -m -S -p95 -i200 -q -D$((M / 2))m > cyc-load.txt 2>&1
+wait %1 2>/dev/null
+
+say "4/4 audio cores, detailed ($((M / 4)) min)"
+rtla timerlat top -P f:95 -c "$P" -d $((M / 4))m -q > timerlat.txt 2>&1
+
+if [ "$xr" != 0 ]; then
+    kill $xr 2>/dev/null; echo 0 > $T/events/djos/xrun/enable; echo '-:djos/xrun' >> $T/kprobe_events
+fi
+
+maxof() { grep -o 'Max: *[0-9]*' "$1" 2>/dev/null | grep -o '[0-9]*$' | sort -n | tail -1; }
+idle=$(maxof cyc-idle.txt); load=$(maxof cyc-load.txt)
+hw=$(grep -io 'max latency: *[0-9]*' hwlat.txt | grep -o '[0-9]*$' | sort -n | tail -1)
+xruns=$(grep -c djos/xrun xruns.txt 2>/dev/null || echo 0)
+verdict() {
+    local v=${1:-999999}
+    if   [ "$v" -lt 50 ];  then echo "EXCELLENT (safe even at 32-64 sample buffers)"
+    elif [ "$v" -lt 100 ]; then echo "VERY GOOD (safe at 64 sample buffers)"
+    elif [ "$v" -lt 200 ]; then echo "GOOD (safe at 128 sample buffers)"
+    else echo "NEEDS ATTENTION (check hwlat.txt, timerlat.txt)"; fi
+}
+{
+    echo "DJOS latency test — $(date)"
+    echo "Firmware/SMI max:        ${hw:-?} us"
+    echo "Idle max latency:        ${idle:-?} us"
+    echo "Loaded max latency:      ${load:-?} us   -> $(verdict "$load")"
+    echo "Audio xruns during test: $xruns"
+    echo "Details: $OUT"
+} | tee summary.txt

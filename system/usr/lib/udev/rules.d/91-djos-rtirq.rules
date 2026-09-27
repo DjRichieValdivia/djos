@@ -1,0 +1,2 @@
+# DJOS: al enchufar una placa de audio (consola DJ, interfaz USB) se recalcula la prioridad de sus interrupciones
+ACTION=="add", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", TAG+="systemd", ENV{SYSTEMD_WANTS}+="djos-rtirq-refresh.service"

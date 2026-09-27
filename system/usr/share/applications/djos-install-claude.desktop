@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Install Claude Code
+Comment=Install the Claude assistant for the terminal (sign in with your Claude account)
+Icon=utilities-terminal
+Exec=konsole --hold -e bash -c "curl -fsSL https://claude.ai/install.sh | bash && echo && echo 'Done. Open Konsole and type: claude'"
+Categories=Utility;
