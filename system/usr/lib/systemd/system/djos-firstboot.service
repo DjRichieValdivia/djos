@@ -1,7 +1,7 @@
 [Unit]
 Description=DJOS: audio groups, boot entry and NVIDIA key
 After=local-fs.target
-Before=plasma-setup.service display-manager.service
+Before=plasma-setup.service display-manager.service bootloader-update.service
 
 [Service]
 Type=oneshot
