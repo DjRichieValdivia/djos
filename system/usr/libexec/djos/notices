@@ -16,4 +16,16 @@ elif nvidia_gpu && [ ! -e /proc/driver/nvidia/version ]; then
         "The NVIDIA graphics driver is not running" \
         "DJOS is using basic graphics (only one monitor). Restart once; if it keeps happening, open 'Update DJOS'."
 fi
+
+# Richie DJ fijo en la barra de tareas: una sola vez por usuario, recién cuando la app ya está instalada (si el
+# usuario después lo saca de la barra, se respeta)
+marker=${XDG_STATE_HOME:-$HOME/.local/state}/djos/richiedj-pinned
+if [ ! -e "$marker" ] && [ -e /usr/local/share/applications/richiedj.desktop ]; then
+    script=$(cat /usr/share/djos/pin-richiedj.js)
+    if busctl --user call org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell evaluateScript s "$script" > /dev/null 2>&1 \
+       || gdbus call --session --dest org.kde.plasmashell --object-path /PlasmaShell \
+              --method org.kde.PlasmaShell.evaluateScript "$script" > /dev/null 2>&1; then
+        mkdir -p "${marker%/*}" && touch "$marker"
+    fi
+fi
 exit 0

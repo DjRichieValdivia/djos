@@ -29,8 +29,11 @@ jobs:
       recomendada: ${{ steps.p.outputs.recomendada }}
     steps:
       - id: p
+        shell: bash
         run: |
-          tags=$(skopeo list-tags "docker://$BASE" | jq -r '.Tags[]')
+          set -euo pipefail
+          tags=$(skopeo list-tags --retry-times 3 "docker://$BASE" | jq -r '.Tags[]')
+          [ -n "$tags" ] || { echo "no se pudieron listar las versiones de la base: no se toca nada" >&2; exit 1; }
           limite=$(date -u -d "$DIAS_DE_ESPERA days ago" +%Y%m%d)
           reciente=$(date -u -d "4 days ago" +%Y%m%d)
           rec=""; vivas=""
@@ -42,7 +45,8 @@ jobs:
             vivas="$vivas $m"
             [ "$(echo "$fechas" | head -1)" -le "$limite" ] && rec=$m       # existe hace 4 semanas o más
           done
-          [ -n "$rec" ] || rec=$PRIMERA_VERSION
+          # sin una versión viva y probada no se arma nada (nunca se vuelve "recomendada" una versión vieja)
+          [ -n "$rec" ] || { echo "ninguna versión de Fedora viva y recomendable: no se toca nada" >&2; exit 1; }
           # la recomendada todos los días; la anterior (para quien todavía no apretó el botón) los domingos
           sel="$rec"
           anterior=$((rec - 1))
@@ -110,9 +114,11 @@ jobs:
     needs: armar
     runs-on: ubuntu-24.04
     steps:
-      - name: Borrar versiones viejas (quedan las últimas 14)
+      - name: Borrar versiones viejas (quedan las últimas 30 y las que tienen etiqueta viva)
         uses: actions/delete-package-versions@v5
         with:
           package-name: djos
           package-type: container
-          min-versions-to-keep: 14
+          min-versions-to-keep: 30
+          # nunca se borra una versión que todavía lleva una etiqueta viva (44, 45, recommended, latest)
+          ignore-versions: '^([0-9]+|recommended|latest)$'

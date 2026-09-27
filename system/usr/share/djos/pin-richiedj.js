@@ -1,4 +1,4 @@
-// DJOS: fija Richie DJ en la barra de tareas (una vez por usuario, si la app está instalada).
+// DJOS: fija Richie DJ en la barra de tareas (lo corre "notices" al iniciar sesión, una vez, cuando la app ya está).
 // Si la barra todavía tiene los lanzadores por defecto, se conservan y Richie DJ va primero.
 if (applicationExists("richiedj.desktop")) {
     var defaults = ["applications:systemsettings.desktop", "applications:org.kde.discover.desktop",

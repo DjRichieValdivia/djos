@@ -69,9 +69,10 @@ rm -f /etc/xdg/autostart/geoclue-demo-agent.desktop
 printf '\n[DoNotDisturb]\nWhenFullscreen=true\n' >> /etc/xdg/plasmanotifyrc
 
 # --- 6. Nombre del sistema (se mantiene ID=fedora para que todo lo de Fedora siga funcionando)
+. /usr/lib/os-release   # VERSION_ID: la versión de Fedora de la base (44, 45…)
 sed -i \
     -e 's/^NAME=.*/NAME="DJOS"/' \
-    -e 's/^PRETTY_NAME=.*/PRETTY_NAME="DJOS 44"/' \
+    -e "s/^PRETTY_NAME=.*/PRETTY_NAME=\"DJOS ${VERSION_ID}\"/" \
     -e 's/^DEFAULT_HOSTNAME=.*//' \
     /usr/lib/os-release
 cat >> /usr/lib/os-release <<'EOF'

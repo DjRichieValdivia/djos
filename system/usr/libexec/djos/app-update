@@ -3,18 +3,30 @@
 # Se listan en /etc/djos/apps.conf (propio de cada PC, no está en la imagen), una línea por programa:
 #     <nombre> <imagen> <carpeta> <proceso>
 #     richiedj ghcr.io/usuario/richiedj:latest /var/opt/richiedj Richie DJ
-# La imagen trae el programa en /app. Solo se baja lo que cambió (capas); si el programa está abierto no se toca y
-# se reintenta en la próxima vuelta (nunca se reemplaza mientras suena). El cambio es atómico: carpeta nueva y
-# renombrar.
+# La imagen trae el programa en /app. Solo se baja lo que cambió (capas); si el programa está abierto o sonando no
+# se toca y se reintenta en la próxima vuelta (la versión ya bajada queda lista). El cambio es atómico: carpeta
+# nueva y renombrar.
 set -u
 conf=${DJOS_APPS_CONF:-/etc/djos/apps.conf}
 [ -r "$conf" ] || exit 0
 authfile=${DJOS_AUTHFILE:-/etc/ostree/auth.json}
 auth=(); [ -s "$authfile" ] && auth=(--authfile "$authfile")
 
+# ¿el programa está abierto (por nombre o por cualquier proceso que corra desde su carpeta) o hay un set sonando?
+in_use() {   # $1 carpeta, $2 nombre del proceso
+    local e
+    pgrep -x "$2" > /dev/null && return 0
+    for e in /proc/[0-9]*/exe; do
+        case "$(readlink "$e" 2> /dev/null)" in "$1"/*|"$1.old"/*) return 0 ;; esac
+    done
+    [ -x /usr/libexec/djos/gig-guard ] && ! /usr/libexec/djos/gig-guard && return 0
+    return 1
+}
+
 while read -r name image dir proc; do
     case "$name" in ''|\#*) continue ;; esac
     [ -n "$image" ] && [ -n "$dir" ] || continue
+    proc=${proc:-$name}
     # primero solo se pregunta qué versión hay (sin bajar nada); si es la instalada, no se hace nada más
     case "$image" in
         localhost/*) new=$(podman image inspect --format '{{.Digest}}' "$image" 2>/dev/null) ;;   # pruebas locales
@@ -22,34 +34,42 @@ while read -r name image dir proc; do
     esac
     [ -n "$new" ] || { echo "$name: could not reach $image"; continue; }
     [ -f "$dir/.djos-digest" ] && [ "$(cat "$dir/.djos-digest")" = "$new" ] && continue
-    if pgrep -x "${proc:-$name}" > /dev/null; then
-        echo "$name: running, will update next time"; continue
+    if in_use "$dir" "$proc"; then
+        echo "$name: in use, will update next time"; continue
     fi
-    case "$image" in
-        localhost/*) ;;
-        *) if ! podman pull -q "${auth[@]}" "$image" > /dev/null 2>&1; then
-               echo "$name: could not download $image"; continue
-           fi ;;
-    esac
-    tmp="$dir.new"; rm -rf "$tmp"; mkdir -p "$tmp"
-    cid=$(podman create "$image" /app) || continue
-    if podman export "$cid" | tar -x -C "$tmp" --strip-components=1 app; then
-        echo "$new" > "$tmp/.djos-digest"
-        rm -rf "$dir.old"
-        [ -d "$dir" ] && mv "$dir" "$dir.old"
-        mv "$tmp" "$dir" && rm -rf "$dir.old"
-        # lanzador del menú e ícono que trae el programa (share/applications, share/icons)
-        if [ -d "$dir/share" ]; then
-            mkdir -p /usr/local/share && cp -r "$dir/share/." /usr/local/share/
-            restorecon -RF /usr/local/share 2> /dev/null
-            gtk-update-icon-cache -q /usr/local/share/icons/hicolor 2> /dev/null
+    tmp="$dir.new"
+    # si una vuelta anterior ya bajó y desarmó esta misma versión, se usa directamente
+    if ! [ -f "$tmp/.djos-digest" ] || [ "$(cat "$tmp/.djos-digest")" != "$new" ]; then
+        case "$image" in
+            localhost/*) ;;
+            *) if ! podman pull -q "${auth[@]}" "$image" > /dev/null 2>&1; then
+                   echo "$name: could not download $image"; continue
+               fi ;;
+        esac
+        rm -rf "$tmp"; mkdir -p "$tmp"
+        cid=$(podman create "$image" /app) || continue
+        if ! podman export "$cid" | tar -x -C "$tmp" --strip-components=1 app; then
+            podman rm -f "$cid" > /dev/null 2>&1
+            rm -rf "$tmp"; echo "$name: could not unpack the update"; continue
         fi
-        restorecon -RF "$dir" 2> /dev/null
-        echo "$name: updated"
-    else
-        rm -rf "$tmp"; echo "$name: could not unpack the update"
+        podman rm -f "$cid" > /dev/null 2>&1
+        echo "$new" > "$tmp/.djos-digest"
     fi
-    podman rm -f "$cid" > /dev/null 2>&1
+    # se vuelve a mirar justo antes de cambiar (la descarga pudo tardar y el usuario pudo empezar a pinchar)
+    if in_use "$dir" "$proc"; then
+        echo "$name: in use, update downloaded and ready for next time"; continue
+    fi
+    rm -rf "$dir.old"
+    [ -d "$dir" ] && mv "$dir" "$dir.old"
+    mv "$tmp" "$dir" && rm -rf "$dir.old"
+    # lanzador del menú e ícono que trae el programa (share/applications, share/icons)
+    if [ -d "$dir/share" ]; then
+        mkdir -p /usr/local/share && cp -r --no-preserve=ownership "$dir/share/." /usr/local/share/
+        restorecon -RF /usr/local/share 2> /dev/null
+        gtk-update-icon-cache -q /usr/local/share/icons/hicolor 2> /dev/null
+    fi
+    restorecon -RF "$dir" 2> /dev/null
+    echo "$name: updated"
 done < "$conf"
 podman image prune -f > /dev/null 2>&1
 exit 0

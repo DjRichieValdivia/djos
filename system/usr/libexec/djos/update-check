@@ -1,13 +1,20 @@
 #!/usr/bin/bash
 # DJOS: se fija si hay una versión grande nueva recomendada (p. ej. Fedora 45, publicada hace 4 semanas o más)
-# y la anota para que aparezca el aviso con el botón. No instala nada.
+# y la anota para que aparezca el aviso con el botón. No instala nada. Si la versión nueva ya está bajada y lista
+# para el próximo reinicio, no avisa de nuevo.
 set -u
 state=/var/lib/djos
 mkdir -p "$state"
-ref=$(bootc status --json 2>/dev/null | jq -r '.status.booted.image.image.image // empty')
+st=$(bootc status --json 2>/dev/null) || exit 0
+ref=$(jq -r '.status.booted.image.image.image // empty' <<< "$st")
 [ -n "$ref" ] || exit 0
 repo=${ref%:*}; cur=${ref##*:}
 case "$cur" in ''|*[!0-9]*) exit 0 ;; esac
+staged=$(jq -r '.status.staged.image.image.image // empty' <<< "$st")
+if [ -n "$staged" ] && [ "${staged%:*}" = "$repo" ]; then
+    s=${staged##*:}
+    case "$s" in ''|*[!0-9]*) ;; *) [ "$s" -gt "$cur" ] && cur=$s ;; esac
+fi
 auth=(); [ -f /etc/ostree/auth.json ] && auth=(--authfile /etc/ostree/auth.json)
 rec=$(skopeo inspect "${auth[@]}" --retry-times 2 "docker://$repo:recommended" 2>/dev/null | jq -r '.Labels["djos.fedora"] // empty')
 case "$rec" in ''|*[!0-9]*) exit 0 ;; esac
