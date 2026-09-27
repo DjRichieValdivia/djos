@@ -18,6 +18,8 @@ its apps is English (US).
   - GUI apps: **Discover** / `flatpak install flathub <id>`; curated audio apps: menu **Install Audio Apps**.
   - Arch/AUR packages: `paru` / `yay` (they run in an Arch distrobox named `arch`; installed apps show up in the menu).
   - Other distros/tools: `distrobox create`.
+- Music disks (Windows NTFS, exFAT…): menu **Set Up Music Disk** adds read-only automounts at `/mnt/music-<label>`
+  (fstab lines tagged `# djos-music`).
   - Only if truly needed at system level: `rpm-ostree install <pkg>` (layering, needs a restart) — prefer changing
     the image instead.
 
