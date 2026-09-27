@@ -1,0 +1,12 @@
+[Unit]
+Description=DJOS: important notices at login
+After=graphical-session.target plasma-plasmashell.service
+PartOf=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStartPre=/usr/bin/sleep 20
+ExecStart=/usr/libexec/djos/notices
+
+[Install]
+WantedBy=graphical-session.target

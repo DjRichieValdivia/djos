@@ -24,11 +24,13 @@ echo "==================="
 echo
 echo "DJOS updates come from your private GitHub image. This connects this PC to it (only once)."
 echo
-echo "1) On github.com go to: Settings > Developer settings > Personal access tokens"
-echo "   > Tokens (classic) > Generate new token (classic)"
-echo "   Note: DJOS updates    Expiration: No expiration    Scopes: check ONLY 'read:packages'"
-echo "2) Copy the token and paste it below (it will not be shown on screen)."
+url="https://github.com/settings/tokens/new?scopes=read:packages&description=DJOS%20updates"
+echo "1) Your browser opens GitHub with everything already filled in (only 'read:packages' is checked)."
+echo "   Set Expiration to 'No expiration', click 'Generate token' at the bottom and copy the token."
+echo "   (If the browser doesn't open, go to: $url )"
+echo "2) Paste the token below (it will not be shown on screen)."
 echo
+xdg-open "$url" > /dev/null 2>&1 &
 read -r -p "GitHub username: " user
 read -r -s -p "Token: " token; echo
 if [ -z "$user" ] || [ -z "$token" ]; then echo "Cancelled."; pause; exit 1; fi

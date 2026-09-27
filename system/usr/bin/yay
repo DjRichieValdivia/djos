@@ -1,0 +1,3 @@
+#!/usr/bin/bash
+# DJOS: para los que vienen de yay. Es lo mismo que paru (ver /usr/bin/paru).
+exec /usr/bin/paru "$@"

@@ -1,0 +1,19 @@
+#!/usr/bin/bash
+# DJOS: avisos importantes al iniciar sesión (con explicación de qué hacer)
+#   - Secure Boot sin autorizar la clave del driver de NVIDIA: gráficos básicos y un solo monitor
+#   - hay una placa NVIDIA pero su driver no está cargado (por otra razón)
+set -u
+nvidia_gpu() { lspci -d 10de: 2>/dev/null | grep -qiE 'vga|3d controller|display'; }
+
+if [ -e /var/lib/djos/mok-pending ]; then
+    notify-send -a DJOS -u critical -i video-display \
+        "Finish setting up the NVIDIA graphics driver" \
+        "Until then DJOS uses basic graphics and only one monitor.
+Restart the PC: on the blue screen choose Enroll MOK → Continue → Yes, type the password universalblue and choose Reboot.
+(Or turn off Secure Boot in the BIOS.)"
+elif nvidia_gpu && [ ! -e /proc/driver/nvidia/version ]; then
+    notify-send -a DJOS -u critical -i video-display \
+        "The NVIDIA graphics driver is not running" \
+        "DJOS is using basic graphics (only one monitor). Restart once; if it keeps happening, open 'Update DJOS'."
+fi
+exit 0

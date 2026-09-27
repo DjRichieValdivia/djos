@@ -1,0 +1,37 @@
+#!/usr/bin/bash
+# DJOS: botón "Install Claude Code". Espera a que haya internet, instala Claude con el instalador oficial (en la
+# carpeta del usuario: no toca el sistema), le deja a Claude la guía de DJOS y lo abre.
+set -u
+pause() { echo; read -r -p "Press Enter to close this window." _; }
+
+echo "Install Claude Code"
+echo "==================="
+echo
+printf "Checking the internet connection"
+for i in $(seq 1 30); do
+    getent hosts claude.ai > /dev/null 2>&1 && break
+    printf "."; sleep 2
+done
+echo
+if ! getent hosts claude.ai > /dev/null 2>&1; then
+    echo "No internet connection. Connect to Wi-Fi or cable (network icon, bottom right) and try again."
+    pause; exit 1
+fi
+
+if ! curl -fsSL https://claude.ai/install.sh | bash; then
+    echo; echo "The installation failed (see the messages above). Try again in a moment."
+    pause; exit 1
+fi
+export PATH="$HOME/.local/bin:$PATH"
+command -v claude > /dev/null || { echo "Claude was not installed correctly."; pause; exit 1; }
+
+# guía de DJOS para Claude (se lee en cada sesión); no pisa lo que el usuario ya tenga
+mkdir -p "$HOME/.claude"
+grep -qs '@/usr/share/djos/CLAUDE.md' "$HOME/.claude/CLAUDE.md" \
+    || printf '\n@/usr/share/djos/CLAUDE.md\n' >> "$HOME/.claude/CLAUDE.md"
+
+echo
+echo "Done. Starting Claude — sign in with your Claude account."
+echo "From now on just open Konsole and type: claude"
+echo
+exec claude

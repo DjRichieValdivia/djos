@@ -30,6 +30,8 @@ rpm -q plasma-workspace kwin pipewire wireplumber nvidia-driver-libs.x86_64 kons
 #        (rtla, cyclictest/hwlatdetect de realtime-tests, stress-ng, jack_iodelay, alsa_delay)
 dnf5 -y install --setopt=install_weak_deps=False \
     qpwgraph rtla realtime-tests stress-ng jack-tools zita-alsa-pcmi-utils
+# git y gh: para que Claude (u otra persona) pueda cambiar DJOS desde el propio DJOS (repositorio -> actualización)
+dnf5 -y install --setopt=install_weak_deps=False git gh
 dnf5 clean all
 
 # --- 3. Archivos de DJOS (audio, tiempo real, arranque, primer inicio), cada uno con su permiso exacto:
@@ -60,7 +62,7 @@ systemctl disable \
 # nunca: actualizar y reiniciar solo (bootc-fetch-apply-updates reinicia la PC) ni el ahorro de energía de laptops
 systemctl mask bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service nvidia-powerd.service
 systemctl enable djos-rtirq.service djos-firstboot.service djos-users.path djos-update-check.timer djos-app-update.timer
-systemctl --global enable djos-update-notify.timer
+systemctl --global enable djos-update-notify.timer djos-notices.service
 
 # --- 5. Escritorio: sin ubicación automática; sin avisos encima de Richie DJ en pantalla completa
 rm -f /etc/xdg/autostart/geoclue-demo-agent.desktop

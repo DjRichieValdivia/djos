@@ -37,6 +37,12 @@ while read -r name image dir proc; do
         rm -rf "$dir.old"
         [ -d "$dir" ] && mv "$dir" "$dir.old"
         mv "$tmp" "$dir" && rm -rf "$dir.old"
+        # lanzador del menú e ícono que trae el programa (share/applications, share/icons)
+        if [ -d "$dir/share" ]; then
+            mkdir -p /usr/local/share && cp -r "$dir/share/." /usr/local/share/
+            restorecon -RF /usr/local/share 2> /dev/null
+            gtk-update-icon-cache -q /usr/local/share/icons/hicolor 2> /dev/null
+        fi
         restorecon -RF "$dir" 2> /dev/null
         echo "$name: updated"
     else

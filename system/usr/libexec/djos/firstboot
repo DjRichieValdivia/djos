@@ -1,12 +1,17 @@
 #!/usr/bin/bash
 # DJOS: tareas de arranque (rápidas; si ya están hechas no hacen nada)
-#   groups  los usuarios de la PC entran a los grupos audio y pipewire (tiempo real para Richie DJ, DAWs y PipeWire)
-#   name    nombre de la PC: djos
-#   labels  etiquetas de SELinux de los programas copiados a /var al instalar (Richie DJ)
-#   efi     entrada "DJOS" en el arranque de la placa madre, primera en el orden
-#   mok     con Secure Boot activado: pide autorizar la clave del driver de NVIDIA (una vez, al reiniciar)
+#   groups   los usuarios de la PC entran a los grupos audio y pipewire (tiempo real para Richie DJ, DAWs y PipeWire)
+#   name     nombre de la PC: djos
+#   relabel  una sola vez: etiquetas de SELinux de todo lo que se escribió al instalar desde otro sistema
+#            (arranque, /etc, programas en /var); sin esto, p. ej., las actualizaciones del arranque se bloquean
+#   labels   en cada arranque: etiquetas de los programas copiados a /var (Richie DJ) y de /etc/djos
+#   efi      entrada "DJOS" en el arranque de la placa madre, primera en el orden
+#   mok      con Secure Boot activado: pide autorizar la clave del driver de NVIDIA (una vez, al reiniciar) y deja
+#            anotado si falta, para el aviso en el escritorio
 set -u
 log() { echo "djos: $*"; }
+state=/var/lib/djos
+mkdir -p "$state"
 
 groups() {
     local g u
@@ -47,21 +52,35 @@ name() {
     [ -s /etc/hostname ] || hostnamectl set-hostname djos
 }
 
+relabel() {
+    local mark=$state/relabeled-1 ro=0
+    [ -f "$mark" ] && return 0
+    # /boot puede estar montado solo lectura: se habilita un momento
+    if findmnt -no OPTIONS /boot 2>/dev/null | tr ',' '\n' | grep -qx ro; then
+        mount -o remount,rw /boot 2>/dev/null && ro=1
+    fi
+    restorecon -RF /boot /etc /var/opt /var/usrlocal "$state" 2>/dev/null
+    [ "$ro" = 1 ] && mount -o remount,ro /boot 2>/dev/null
+    touch "$mark"
+    log "SELinux labels restored after install"
+}
+
 labels() {
-    # programas copiados a /var al instalar (p. ej. Richie DJ en /var/opt): etiquetas de SELinux correctas
     local d
-    for d in /var/opt /var/usrlocal; do
-        [ -d "$d" ] && restorecon -RF "$d" 2>/dev/null
+    for d in /var/opt /var/usrlocal /etc/djos; do
+        [ -e "$d" ] && restorecon -RF "$d" 2>/dev/null
     done
     return 0
 }
 
 mok() {
+    rm -f "$state/mok-pending"
     command -v mokutil >/dev/null || return 0
     mokutil --sb-state 2>/dev/null | grep -qi enabled || return 0
     local key=/etc/pki/akmods/certs/akmods-ublue.der
     [ -f "$key" ] || return 0
     mokutil --test-key "$key" 2>&1 | grep -qi "already enrolled" && return 0
+    touch "$state/mok-pending"   # el aviso del escritorio explica qué hacer al reiniciar
     mokutil --list-new 2>/dev/null | grep -q . && return 0
     mokutil --timeout -1
     # contraseña pública de Universal Blue para confirmar la clave en la pantalla azul (MokManager)
@@ -71,5 +90,6 @@ mok() {
 
 case "${1:-all}" in
     groups) groups ;;
-    all) groups; name; labels; efi; mok ;;
+    all) groups; name; relabel; labels; efi; mok ;;
 esac
+exit 0
