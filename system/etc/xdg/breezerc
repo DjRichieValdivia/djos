@@ -1,0 +1,7 @@
+[Common]
+OutlineIntensity=OutlineLow
+ShadowSize=ShadowMedium
+
+[Windows]
+DrawBorderOnMaximizedWindows=false
+DrawTitleBarSeparator=false

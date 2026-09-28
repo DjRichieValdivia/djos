@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Service
+Exec=/usr/libexec/djos/center --page audio
+Icon=audio-card
+X-KDE-ServiceTypes=SystemSettingsExternalApp
+X-KDE-System-Settings-Parent-Category=djos
+X-KDE-Weight=1
+Name=Audio
+Comment=Sound cards, sample rate, buffer size and real-time checklist
+X-KDE-Keywords=DJOS,Audio

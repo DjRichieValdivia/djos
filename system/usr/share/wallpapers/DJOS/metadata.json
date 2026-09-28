@@ -1,0 +1,8 @@
+{
+    "KPlugin": {
+        "Authors": [ { "Name": "DJOS" } ],
+        "Id": "DJOS",
+        "License": "CC-BY-SA-4.0",
+        "Name": "DJOS"
+    }
+}

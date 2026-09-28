@@ -5,3 +5,4 @@ Comment=See your version, check for updates or upgrade to the new release
 Icon=system-software-update
 Exec=konsole -e /usr/libexec/djos/update
 Categories=System;Settings;
+NoDisplay=true

@@ -1,3 +1,4 @@
 # DJOS: núcleo apropiativo total e interrupciones en hilos (para darle prioridad al USB y al sonido),
 # y USB sin ahorro de energía (las consolas DJ y placas de audio no se cortan).
-kargs = ["preempt=full", "threadirqs", "usbcore.autosuspend=-1"]
+# rhgb + quiet: al arrancar se ve la pantalla de DJOS en vez de los mensajes del sistema.
+kargs = ["preempt=full", "threadirqs", "usbcore.autosuspend=-1", "rhgb", "quiet"]

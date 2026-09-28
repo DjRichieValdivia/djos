@@ -204,6 +204,12 @@ PlasmoidItem {
 
             Item { Layout.fillHeight: true }
 
+            PlasmaComponents.Button {
+                icon.name: "djos"
+                text: "Open DJOS Center"
+                onClicked: root.run("setsid -f /usr/libexec/djos/center --page updates")
+            }
+
             PlasmaComponents.Label {
                 Layout.fillWidth: true
                 opacity: 0.6

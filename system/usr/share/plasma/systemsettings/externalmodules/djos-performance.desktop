@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Service
+Exec=/usr/libexec/djos/center --page performance
+Icon=speedometer
+X-KDE-ServiceTypes=SystemSettingsExternalApp
+X-KDE-System-Settings-Parent-Category=djos
+X-KDE-Weight=2
+Name=Performance
+Comment=Power mode and set protection
+X-KDE-Keywords=DJOS,Performance

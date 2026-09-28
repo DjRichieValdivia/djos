@@ -1,0 +1,16 @@
+[org.kde.kdecoration2]
+BorderSize=None
+BorderSizeAuto=false
+ButtonsOnLeft=
+ButtonsOnRight=IAX
+library=org.kde.breeze
+theme=Breeze
+
+[Windows]
+BorderlessMaximizedWindows=false
+
+[Plugins]
+shakecursorEnabled=false
+
+[Wayland]
+InputMethod=

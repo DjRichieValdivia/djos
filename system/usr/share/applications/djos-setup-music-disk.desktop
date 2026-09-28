@@ -5,3 +5,4 @@ Comment=Always have your music disks available (read-only)
 Icon=drive-harddisk
 Exec=konsole -e /usr/libexec/djos/setup-music-disk
 Categories=System;Settings;
+NoDisplay=true

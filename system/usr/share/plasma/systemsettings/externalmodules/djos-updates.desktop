@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Service
+Exec=/usr/libexec/djos/center --page updates
+Icon=update-none
+X-KDE-ServiceTypes=SystemSettingsExternalApp
+X-KDE-System-Settings-Parent-Category=djos
+X-KDE-Weight=3
+Name=Updates
+Comment=System, Richie DJ and app updates
+X-KDE-Keywords=DJOS,Updates

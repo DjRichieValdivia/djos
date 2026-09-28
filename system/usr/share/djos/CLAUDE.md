@@ -11,14 +11,18 @@ its apps is English (US).
   (`gh auth login`, then `gh repo clone <owner>/djos`), edit, commit, push. GitHub builds it; the PC downloads it
   in the background and applies it on the next restart. Nothing is ever reinstalled.
 - Updates: `rpm-ostreed-automatic` stages OS updates (applied on restart; the previous version stays in the boot
-  menu). `djos-app-update` updates private apps listed in `/etc/djos/apps.conf`. The menu app **Update DJOS**
+  menu). `djos-app-update` updates private apps listed in `/etc/djos/apps.conf`. **DJOS Center** (Updates page) and
+  the **DJOS Updates** panel icon
   does both on demand. Private registry access lives in `/etc/ostree/auth.json` (root only, set by
   **Set Up DJOS Updates**).
 - Installing software without touching the OS:
-  - GUI apps: **Discover** / `flatpak install flathub <id>`; curated audio apps: menu **Install Audio Apps**.
+  - GUI apps: **Discover** / `flatpak install flathub <id>`; curated DJ/production apps and plugin packs:
+    **DJOS Center > Apps & Plugins** (`/usr/libexec/djos/flatpak-audio`; Flathub DAWs get the LinuxAudio plugin
+    extensions of their runtime branch). Included natively: Ardour, Carla, Audacity, Kid3, Picard, SoundConverter,
+    Sonic Visualiser, Haruna, qpwgraph and LV2/VST3/CLAP plugins (LSP, x42, Calf, ZAM, ZynAddSubFX).
   - Arch/AUR packages: `paru` / `yay` (they run in an Arch distrobox named `arch`; installed apps show up in the menu).
   - Other distros/tools: `distrobox create`.
-- Music disks (Windows NTFS, exFAT…): menu **Set Up Music Disk** adds read-only automounts at `/mnt/music-<label>`
+- Music disks (Windows NTFS, exFAT…): **DJOS Center > Music Disks** adds read-only automounts at `/mnt/music-<label>`
   (fstab lines tagged `# djos-music`).
   - Only if truly needed at system level: `rpm-ostree install <pkg>` (layering, needs a restart) — prefer changing
     the image instead.
@@ -46,3 +50,11 @@ its apps is English (US).
   DJOS repo, commits or anything pushed. Tokens are typed by the user, never by you.
 - Never change audio/real-time settings while the user may be playing a set; ask first.
 - Destructive disk operations and Secure Boot / BIOS changes are done by the user, with your exact instructions.
+
+## Look and feel
+- Global theme `org.djos.desktop` (colors `DJOS`, icons Papirus-Dark with orange folders, fonts Inter / JetBrains
+  Mono, wallpapers `/usr/share/wallpapers/DJOS*`, splash, Plymouth theme `djos`). The panel layout is
+  `/usr/share/djos/panel.js`; `djos-desktop.service` (user) applies the look once per user (`desktop-vN` marker in
+  `~/.local/state/djos/`) and sets each new monitor to its highest refresh rate (`display-setup`).
+- DJOS Center (`/usr/libexec/djos/center`, PySide6 + Kirigami QML in `/usr/share/djos/center`) is also listed in
+  System Settings under the DJOS category.

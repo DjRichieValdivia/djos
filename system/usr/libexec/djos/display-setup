@@ -1,0 +1,24 @@
+#!/usr/bin/bash
+# DJOS: cada monitor nuevo arranca en su frecuencia más alta (144 Hz, 165 Hz…) con su resolución de siempre; muchos
+# monitores rápidos se ven a 60 Hz si no se les pide. Se hace una sola vez por monitor: si después se cambia a mano
+# en Configuración > Pantalla, se respeta.
+set -u
+state=${XDG_STATE_HOME:-$HOME/.local/state}/djos
+seen=$state/displays
+mkdir -p "$state"; touch "$seen"
+json=$(kscreen-doctor -j 2>/dev/null) || exit 0
+jq -c '.outputs[] | select(.enabled and .connected)' <<< "$json" | while read -r o; do
+    name=$(jq -r '.name' <<< "$o")
+    id=$(jq -r '[.name, (.modes | length | tostring)] | join(":")' <<< "$o")
+    grep -qxF "$id" "$seen" && continue
+    cur=$(jq -r '.currentModeId' <<< "$o")
+    best=$(jq -r --arg cur "$cur" '
+        (.modes[] | select(.id == $cur) | .size) as $s
+        | [.modes[] | select(.size.width == $s.width and .size.height == $s.height)]
+        | max_by(.refreshRate) | .id' <<< "$o")
+    if [ -n "$best" ] && [ "$best" != null ] && [ "$best" != "$cur" ]; then
+        kscreen-doctor "output.$name.mode.$best" > /dev/null 2>&1
+    fi
+    echo "$id" >> "$seen"
+done
+exit 0

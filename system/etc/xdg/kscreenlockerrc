@@ -2,3 +2,7 @@
 [Daemon]
 Autolock=false
 LockOnResume=false
+
+[Greeter][Wallpaper][org.kde.image][General]
+Image=file:///usr/share/wallpapers/DJOS-Lock/
+PreviewImage=file:///usr/share/wallpapers/DJOS-Lock/

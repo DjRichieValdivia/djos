@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Service
+Exec=/usr/libexec/djos/center --page apps
+Icon=plasmadiscover
+X-KDE-ServiceTypes=SystemSettingsExternalApp
+X-KDE-System-Settings-Parent-Category=djos
+X-KDE-Weight=4
+Name=Apps & Plugins
+Comment=DAWs, DJ software, plugins and tools
+X-KDE-Keywords=DJOS,Apps & Plugins

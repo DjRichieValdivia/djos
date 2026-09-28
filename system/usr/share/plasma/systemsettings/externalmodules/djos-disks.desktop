@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Service
+Exec=/usr/libexec/djos/center --page disks
+Icon=drive-harddisk
+X-KDE-ServiceTypes=SystemSettingsExternalApp
+X-KDE-System-Settings-Parent-Category=djos
+X-KDE-Weight=5
+Name=Music Disks
+Comment=Music disks and USB sticks for CDJs
+X-KDE-Keywords=DJOS,Music Disks

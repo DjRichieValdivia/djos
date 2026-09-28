@@ -7,7 +7,7 @@ if [ -n "${PS1:-}" ] && [ -n "${HOME:-}" ] && [ -z "${CONTAINER_ID:-}" ] && [ ! 
     echo ""
     echo "  Install apps:          Discover (app store), or  flatpak install flathub <app>"
     echo "  Arch / AUR packages:   paru -S <package>   (apps show up in the menu)"
-    echo "  Update now:            open 'Update DJOS' from the menu"
+    echo "  Settings for audio, updates, apps and plugins:  DJOS Center (in the menu)"
     echo "  Audio latency test:    sudo djos-latency-test"
     echo ""
     echo "  The system itself is read-only by design (it can't break); your files and apps are yours."

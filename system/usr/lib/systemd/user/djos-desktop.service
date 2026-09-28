@@ -1,0 +1,12 @@
+[Unit]
+Description=DJOS: desktop look and displays
+After=plasma-plasmashell.service
+PartOf=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/djos/desktop-setup
+ExecStartPost=/usr/libexec/djos/display-setup
+
+[Install]
+WantedBy=graphical-session.target

@@ -1,0 +1,282 @@
+#!/usr/bin/python3
+# DJOS Center: el panel de control de DJOS (audio, rendimiento, actualizaciones, programas, discos de música e
+# información del sistema). La interfaz está en /usr/share/djos/center (QML con Kirigami, el mismo aspecto que
+# Configuración de Plasma); acá está todo lo que lee o cambia el sistema.
+#   center [--page overview|audio|performance|updates|apps|disks|about]
+import json
+import os
+import re
+import subprocess
+import sys
+
+os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "org.kde.desktop")
+os.environ.setdefault("QT_QPA_PLATFORMTHEME", "kde")   # colores, letras e íconos de Plasma aunque se abra desde afuera
+
+from PySide6.QtCore import QObject, QProcess, QUrl, Signal, Slot
+from PySide6.QtGui import QIcon
+from PySide6.QtQml import QQmlApplicationEngine
+from PySide6.QtWidgets import QApplication
+
+SHARE = "/usr/share/djos/center"
+STATE = "/var/lib/djos"
+PW_USER_CONF = os.path.expanduser("~/.config/pipewire/pipewire.conf.d/60-djos-user.conf")
+
+
+def out(args, timeout=8):
+    try:
+        return subprocess.run(args, capture_output=True, text=True, timeout=timeout).stdout
+    except Exception:
+        return ""
+
+
+def read(path, default=""):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return default
+
+
+def os_release():
+    d = {}
+    for line in read("/etc/os-release").splitlines():
+        if "=" in line:
+            k, v = line.split("=", 1)
+            d[k] = v.strip().strip('"')
+    return d
+
+
+def sound_cards():
+    cards = []
+    for m in re.finditer(r"^\s*(\d+) \[(\S+)\s*\]: ([^\n]*)\n\s*(.*)$", read("/proc/asound/cards"), re.M):
+        n, cid, driver, longname = m.group(1), m.group(2), m.group(3), m.group(4).strip()
+        usb = os.path.exists(f"/proc/asound/card{n}/usbid")
+        hdmi = "HDMI" in longname.upper() or "NVIDIA" in driver.upper() or cid.upper().startswith("NVIDIA")
+        name = longname.split(" at ")[0]
+        cards.append({"index": int(n), "id": cid, "name": name, "usb": usb, "hdmi": hdmi})
+    # la placa de audio (USB) primero; la salida de video (HDMI) al final
+    cards.sort(key=lambda c: (not c["usb"], c["hdmi"], c["index"]))
+    return cards
+
+
+def pw_settings():
+    s = {}
+    for m in re.finditer(r"key:'([^']+)' value:'([^']*)'", out(["pw-metadata", "-n", "settings"])):
+        s[m.group(1)] = m.group(2)
+    return s
+
+
+class Backend(QObject):
+    jobDone = Signal(str, int, str)   # etiqueta, código de salida, salida
+
+    def __init__(self):
+        super().__init__()
+        self._procs = set()
+
+    # --- procesos -------------------------------------------------------------------------------------------------
+    @Slot(str, "QVariantList")
+    def run(self, tag, args):
+        """Corre algo en segundo plano; al terminar emite jobDone(tag, código, salida)."""
+        p = QProcess(self)
+        p.setProcessChannelMode(QProcess.MergedChannels)
+        self._procs.add(p)
+
+        def done(code, _status, p=p, tag=tag):
+            text = bytes(p.readAll()).decode("utf-8", "replace")
+            self._procs.discard(p)
+            p.deleteLater()
+            self.jobDone.emit(tag, code, text)
+
+        p.finished.connect(done)
+        p.start(str(args[0]), [str(a) for a in args[1:]])
+
+    @Slot("QVariantList")
+    def launch(self, args):
+        QProcess.startDetached(str(args[0]), [str(a) for a in args[1:]])
+
+    @Slot(str)
+    def terminal(self, command):
+        QProcess.startDetached("konsole", ["--hide-menubar", "-e", "bash", "-lc", command])
+
+    # --- audio ----------------------------------------------------------------------------------------------------
+    @Slot(result=str)
+    def audio(self):
+        s = pw_settings()
+        rate = int(s.get("clock.rate", "48000") or 48000)
+        quantum = int(s.get("clock.quantum", "256") or 256)
+        force_q = int(s.get("clock.force-quantum", "0") or 0)
+        cmdline = read("/proc/cmdline")
+        rt_threads = []
+        for line in out(["ps", "-eLo", "rtprio=,comm="]).splitlines():
+            parts = line.split(None, 1)
+            if len(parts) == 2 and parts[0].isdigit() and int(parts[0]) >= 85 and parts[1].startswith("irq/"):
+                rt_threads.append(f"{parts[1]} (FIFO {parts[0]})")
+        try:
+            import resource
+            rtprio = resource.getrlimit(resource.RLIMIT_RTPRIO)[0]
+            memlock = resource.getrlimit(resource.RLIMIT_MEMLOCK)[0]
+        except Exception:
+            rtprio, memlock = 0, 0
+        return json.dumps({
+            "rate": rate, "quantum": force_q or quantum,
+            "configuredRate": self._conf_value("default.clock.rate", 48000),
+            "configuredQuantum": self._conf_value("default.clock.quantum", 256),
+            "cards": sound_cards(),
+            "rtLimits": rtprio >= 90 and (memlock == -1 or memlock > 1 << 30),
+            "kernelRt": "threadirqs" in cmdline and "preempt=full" in cmdline,
+            "irqThreads": rt_threads,
+            "tuned": out(["tuned-adm", "active"]).split(":")[-1].strip(),
+        })
+
+    def _conf_value(self, key, default):
+        m = re.search(re.escape(key) + r"\s*=\s*(\d+)", read(PW_USER_CONF))
+        return int(m.group(1)) if m else default
+
+    @Slot(int, int, result=bool)
+    def setAudio(self, rate, quantum):
+        """Frecuencia y tamaño de buffer de PipeWire: se guarda para el usuario y se aplica al instante."""
+        rate = rate if rate in (44100, 48000, 88200, 96000) else 48000
+        quantum = quantum if quantum in (32, 64, 128, 256, 512, 1024, 2048) else 256
+        os.makedirs(os.path.dirname(PW_USER_CONF), exist_ok=True)
+        with open(PW_USER_CONF, "w", encoding="utf-8") as f:
+            f.write("# DJOS Center: frecuencia y buffer elegidos por el usuario\n"
+                    "context.properties = {\n"
+                    f"    default.clock.rate        = {rate}\n"
+                    f"    default.clock.quantum     = {quantum}\n"
+                    f"    default.clock.min-quantum = {min(32, quantum)}\n"
+                    "}\n")
+        for k, v in (("clock.rate", rate), ("clock.quantum", quantum), ("clock.min-quantum", min(32, quantum)),
+                     ("clock.force-rate", 0), ("clock.force-quantum", 0)):
+            out(["pw-metadata", "-n", "settings", "0", k, str(v)])
+        return True
+
+    # --- rendimiento ----------------------------------------------------------------------------------------------
+    @Slot(result=str)
+    def powerProfile(self):
+        return out(["powerprofilesctl", "get"]).strip() or "performance"
+
+    @Slot(str)
+    def setPowerProfile(self, profile):
+        if profile in ("performance", "balanced", "power-saver"):
+            out(["powerprofilesctl", "set", profile])
+
+    @Slot(result=bool)
+    def playing(self):
+        """Un set sonando: alguien que no es tuned pidió latencia mínima del procesador (Richie DJ al reproducir)."""
+        return subprocess.run(["/usr/libexec/djos/gig-guard"], capture_output=True).returncode != 0
+
+    # --- sistema --------------------------------------------------------------------------------------------------
+    @Slot(result=str)
+    def system(self):
+        rel = os_release()
+        cpu = ""
+        for line in read("/proc/cpuinfo").splitlines():
+            if line.startswith("model name"):
+                cpu = line.split(":", 1)[1].strip()
+                break
+        mem = 0
+        m = re.search(r"MemTotal:\s+(\d+)", read("/proc/meminfo"))
+        if m:
+            mem = round(int(m.group(1)) / 1024 / 1024)
+        nv = read("/proc/driver/nvidia/version")
+        m = re.search(r"Kernel Module(?: for x86_64)?\s+([\d.]+)", nv)
+        gpu = ""
+        for line in out(["lspci"]).splitlines():
+            if re.search(r"VGA|3D controller|Display", line):
+                g = line.split(": ", 1)[-1]
+                if "NVIDIA" in g or not gpu:
+                    gpu = re.sub(r"\s*\(rev [0-9a-f]+\)$", "", g)
+        st = {}
+        try:
+            st = json.loads(out(["rpm-ostree", "status", "--json"], timeout=15) or "{}")
+        except ValueError:
+            pass
+        booted = next((d for d in st.get("deployments", []) if d.get("booted")), {})
+        return json.dumps({
+            "name": rel.get("PRETTY_NAME", "DJOS"),
+            "version": booted.get("version", ""),
+            "image": (booted.get("container-image-reference", "") or "").split(":")[-1],
+            "kernel": os.uname().release,
+            "cpu": cpu, "memory": mem, "gpu": gpu,
+            "nvidia": m.group(1) if m else "",
+            "nvidiaCard": "NVIDIA" in gpu,
+            "mokPending": os.path.exists(f"{STATE}/mok-pending"),
+            "newVersion": read(f"{STATE}/new-version").strip(),
+            "richiedj": os.path.exists("/usr/local/share/applications/richiedj.desktop"),
+        })
+
+    @Slot(result=str)
+    def disks(self):
+        try:
+            data = json.loads(out(["lsblk", "-J", "-b", "-o", "NAME,PATH,TYPE,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS,MODEL,TRAN"]))
+        except ValueError:
+            return "[]"
+        music = {}   # discos ya preparados con "Set Up Music Disk": UUID -> carpeta
+        for line in read("/etc/fstab").splitlines():
+            if "# djos-music" in line and line.startswith("UUID="):
+                parts = line.split()
+                music[parts[0][5:]] = parts[1]
+        res = []
+
+        def walk(devs, model="", tran=""):
+            for d in devs:
+                mdl = d.get("model") or model
+                tr = d.get("tran") or tran
+                if d.get("type") == "part" and d.get("fstype") in ("ntfs", "exfat", "vfat", "ext4", "xfs", "btrfs"):
+                    mps = [m for m in (d.get("mountpoints") or []) if m]
+                    system = any(m in ("/", "/sysroot", "/boot", "/boot/efi", "/var", "/etc", "/usr") or m.startswith("/sysroot") for m in mps)
+                    if not system and (d.get("label") or "").lower() not in ("boot", "efi", "recovery"):
+                        res.append({"path": d.get("path"), "label": d.get("label") or "", "fs": d.get("fstype"),
+                                    "size": int(d.get("size") or 0), "mounted": mps[0] if mps else "",
+                                    "music": music.get(d.get("uuid") or "", ""),
+                                    "model": (mdl or "").strip(), "usb": tr == "usb"})
+                walk(d.get("children") or [], mdl, tr)
+
+        walk(data.get("blockdevices", []))
+        return json.dumps(res)
+
+    # --- programas ------------------------------------------------------------------------------------------------
+    @Slot(result=str)
+    def catalog(self):
+        try:
+            cat = json.loads(read(f"{SHARE}/apps.json", "[]"))
+        except ValueError:
+            cat = []
+        flat = set(out(["flatpak", "list", "--columns=application"], timeout=20).split())
+        for a in cat:
+            if a.get("native"):
+                a["installed"] = any(os.path.exists(os.path.join(d, a["native"])) for d in
+                                     ("/usr/share/applications", "/usr/local/share/applications"))
+                a["included"] = True
+            else:
+                ids = a.get("flatpaks") or [a["flatpak"]]
+                a["installed"] = all(i in flat or any(f.startswith(i + "/") or f == i for f in flat) for i in ids)
+        return json.dumps(cat)
+
+
+def main():
+    page = "overview"
+    if "--page" in sys.argv:
+        i = sys.argv.index("--page")
+        if i + 1 < len(sys.argv):
+            page = sys.argv[i + 1]
+    app = QApplication(sys.argv)
+    app.setApplicationName("DJOS Center")
+    app.setOrganizationName("DJOS")
+    app.setDesktopFileName("org.djos.center")
+    if not QIcon.themeName() or QIcon.themeName() == "hicolor":
+        m = re.search(r"^\[Icons\]\s*\nTheme=(\S+)", read(os.path.expanduser("~/.config/kdeglobals")) or read("/etc/xdg/kdeglobals"), re.M)
+        QIcon.setThemeName(m.group(1) if m else "Papirus-Dark")
+    app.setWindowIcon(QIcon.fromTheme("djos"))
+    engine = QQmlApplicationEngine()
+    backend = Backend()
+    engine.rootContext().setContextProperty("djos", backend)
+    engine.rootContext().setContextProperty("startPage", page)
+    engine.load(QUrl.fromLocalFile(f"{SHARE}/Main.qml"))
+    if not engine.rootObjects():
+        sys.exit(1)
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

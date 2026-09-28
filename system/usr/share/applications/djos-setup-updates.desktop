@@ -5,3 +5,4 @@ Comment=Connect this PC to your private DJOS updates on GitHub (only once)
 Icon=preferences-system-network
 Exec=konsole -e /usr/libexec/djos/setup-updates
 Categories=System;Settings;
+NoDisplay=true

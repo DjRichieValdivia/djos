@@ -1,0 +1,42 @@
+[General]
+ColorScheme=DJOS
+font=Inter,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
+menuFont=Inter,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
+smallestReadableFont=Inter,8,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
+toolBarFont=Inter,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
+fixed=JetBrains Mono,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
+
+[WM]
+activeFont=Inter,10,-1,5,600,0,0,0,0,0,0,0,0,0,0,1
+
+[Icons]
+Theme=Papirus-Dark
+
+[KDE]
+LookAndFeelPackage=org.djos.desktop
+widgetStyle=Breeze
+AnimationDurationFactor=0.5
+
+# Configuración: fuera las secciones que en una PC de DJ / estudio no sirven
+[KDE Control Module Restrictions]
+kcm_gamecontroller=false
+kcm_kaccounts=false
+kcm_krdpserver=false
+kcm_feedback=false
+kcm_tablet=false
+kcm_touchscreen=false
+kcm_kwintouchscreen=false
+kcm_virtualkeyboard=false
+kcm_plasmakeyboard=false
+kcm_cellular_network=false
+kcm_mobile_hotspot=false
+kcm_mobile_power=false
+kcm_mobile_wifi=false
+kcm_mobile_wired=false
+kcm_kamera=false
+kcm_activities=false
+kcm_baloofile=false
+kcm_webshortcuts=false
+kcmspellchecking=false
+kcm_updates=false
+kcm_fcitx5=false

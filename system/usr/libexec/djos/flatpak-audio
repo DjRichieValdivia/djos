@@ -1,0 +1,48 @@
+#!/usr/bin/bash
+# DJOS Center: instala y saca programas de Flathub, y mantiene los paquetes de plugins (LinuxAudio) al día con los
+# DAW de Flathub: cada DAW usa una versión del "punto de plugins" (25.08, 26.08…) y los plugins tienen que ser de esa
+# misma versión para aparecer adentro del DAW.
+#   flatpak-audio install <id>…      instala (y deja los plugins que ya tenías también para el DAW nuevo)
+#   flatpak-audio remove <id>…
+#   flatpak-audio plugins <id>…      instala paquetes de plugins para todos los DAW instalados
+set -uo pipefail
+
+branches() {   # versiones del punto de plugins de los DAW instalados
+    local a
+    for a in $(flatpak list --app --columns=application 2>/dev/null); do
+        flatpak info -m "$a" 2>/dev/null | awk '
+            /^\[Extension org\.freedesktop\.LinuxAudio\.Plugins\]/ { f = 1; next }
+            /^\[/ { f = 0 }
+            f && /^versions?=/ { sub(/^versions?=/, ""); n = split($0, v, ";"); for (i = 1; i <= n; i++) if (v[i] != "") print v[i] }'
+    done | sort -u
+}
+
+plugins_for_all() {   # plugins_for_all <id>…: cada paquete, para cada versión que usan los DAW (o la actual si no hay)
+    local bs b p refs=()
+    bs=$(branches)
+    [ -n "$bs" ] || bs=$(flatpak remote-info --system flathub org.freedesktop.Platform 2>/dev/null | awk '/^ *Branch:/{print $2; exit}')
+    [ -n "$bs" ] || bs=25.08
+    for b in $bs; do
+        for p in "$@"; do
+            flatpak info --system "$p//$b" > /dev/null 2>&1 || refs+=("$p//$b")
+        done
+    done
+    [ ${#refs[@]} -eq 0 ] && return 0
+    flatpak install --system -y --noninteractive flathub "${refs[@]}"
+}
+
+cmd=${1:-}; shift || true
+case "$cmd" in
+    install)
+        flatpak install --system -y --noninteractive flathub "$@" || exit 1
+        # los plugins que ya estaban instalados, también para la versión del DAW nuevo
+        have=$(flatpak list --system --runtime --columns=application 2>/dev/null | grep '^org\.freedesktop\.LinuxAudio\.Plugins\.' | sort -u)
+        [ -n "$have" ] && plugins_for_all $have
+        exit 0 ;;
+    remove)
+        flatpak uninstall --system -y --noninteractive "$@" ;;
+    plugins)
+        plugins_for_all "$@" ;;
+    *)
+        echo "usage: flatpak-audio install|remove|plugins <id>…" >&2; exit 2 ;;
+esac
