@@ -1,0 +1,92 @@
+#!/usr/bin/bash
+# DJOS: autotest en esta PC (el hardware de verdad). Revisa el sistema, hace sonar Richie DJ EN SILENCIO (volumen en
+# 0) por la placa de audio con el motor directo y cuenta cortes, y ofrece el test de latencia del sistema.
+# Nada del usuario se toca: Richie DJ usa una carpeta de datos temporal (RICHIE_DATA_DIR). Informe en el Escritorio.
+set -u
+DESK=$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Desktop"); mkdir -p "$DESK"
+REPORT="$DESK/djos-selftest-$(date +%F-%H%M).txt"
+exec > >(tee "$REPORT") 2>&1
+ok=0; warn=0
+pass() { echo "  [OK]   $*"; ok=$((ok + 1)); }
+bad() { echo "  [!!]   $*"; warn=$((warn + 1)); }
+title() { echo; echo "== $*"; }
+
+echo "DJOS self-test — $(date '+%F %H:%M')"
+. /etc/os-release; echo "$PRETTY_NAME  ($(rpm-ostree status --json 2>/dev/null | jq -r '[.deployments[] | select(.booted)][0].version // ""'))  kernel $(uname -r)"
+
+title "Real-time audio setup"
+c=$(cat /proc/cmdline)
+[[ $c == *preempt=full* && $c == *threadirqs* ]] && pass "low-latency kernel (full preemption, threaded interrupts)" || bad "kernel arguments missing: $c"
+t=$(tuned-adm active 2>/dev/null | sed 's/.*: //'); [[ $t == djos* ]] && pass "processor profile: $t" || bad "processor profile is '$t' (DJOS Center > Performance > Performance)"
+[ "$(ulimit -r)" -ge 90 ] 2>/dev/null && pass "real-time priority allowed for your user ($(ulimit -r))" || bad "no real-time priority for your user (log out and back in)"
+irq=$(ps -eLo rtprio=,comm= | awk '$1 >= 85 && $2 ~ /^irq\// { printf "%s (FIFO %s)  ", $2, $1 }')
+[ -n "$irq" ] && pass "sound card interrupts at top priority: $irq" || bad "no sound card interrupt boosted (is the audio interface connected?)"
+pw=$(pw-metadata -n settings 2>/dev/null | grep -oE "clock\.(rate|quantum)' value:'[0-9]+" | sed "s/' value:'/=/" | tr '\n' ' ')
+echo "  [..]   PipeWire: $pw"
+
+title "Graphics and displays"
+if lspci -d 10de: 2>/dev/null | grep -qiE 'vga|3d'; then
+    if [ -r /proc/driver/nvidia/version ]; then pass "NVIDIA driver $(sed -n 's/.*Kernel Module *\([0-9.]*\).*/\1/p' /proc/driver/nvidia/version | head -1) running"
+    elif [ -e /var/lib/djos/mok-pending ]; then bad "NVIDIA driver waiting for the key: restart, Enroll MOK, password universalblue"
+    else bad "NVIDIA driver not running"; fi
+fi
+kscreen-doctor -j 2>/dev/null | jq -r '.outputs[] | select(.enabled) | . as $o | ($o.modes[] | select(.id == $o.currentModeId)) as $m
+    | ([$o.modes[] | select(.size.width == $m.size.width and .size.height == $m.size.height) | .refreshRate] | max) as $best
+    | "\($o.name) \($m.size.width)x\($m.size.height) @ \($m.refreshRate | floor) Hz (max \($best | floor) Hz)"' 2>/dev/null |
+while read -r line; do echo "  [..]   monitor $line"; done
+
+title "Sound cards and controllers"
+cat /proc/asound/cards | sed 's/^/         /'
+ctl=$(/usr/libexec/djos/controller-audio status 2>/dev/null || echo "[]")
+jq -r '.[] | "\(.name) (\(.id)): " + (if .audio then "audio OK" + (if .enabled then " (compatible mode, " + .match + ")" else "" end)
+            elif .match != "" then "audio needs the compatible mode (" + .match + "): DJOS Center > Audio"
+            else "audio not supported yet: DJOS Center > Audio > Save device info" end)' <<< "$ctl" |
+while read -r line; do [[ $line == *"audio OK"* ]] && pass "$line" || bad "$line"; done
+
+title "Richie DJ plays silently through your sound card (volume 0) and counts dropouts"
+APP="/var/opt/richiedj/Richie DJ"
+if [ ! -x "$APP" ]; then bad "Richie DJ is not installed yet (DJOS Center > Updates > Check now)"
+elif pgrep -f "/var/opt/richiedj/Richie DJ" > /dev/null; then bad "close Richie DJ and run the self-test again to test the audio"
+else
+    TD=$(mktemp -d); trap 'rm -rf "$TD"' EXIT
+    T() {   # comando al canal de pruebas de Richie DJ
+        rm -f "$TD/out.txt"; printf '%s\n' "$1" | tr ';' '\n' > "$TD/cmd.txt"
+        local i=0; while [ -f "$TD/cmd.txt" ] && [ $i -lt 200 ]; do sleep 0.1; i=$((i + 1)); done
+        sleep "${2:-1.5}"; cat "$TD/out.txt" 2>/dev/null
+    }
+    RICHIE_TEST_DIR="$TD" RICHIE_DATA_DIR="$TD/data" "$APP" > "$TD/app.log" 2>&1 &
+    pid=$!
+    sleep 12
+    T "act masterVol 0;act headVol 0;act c1.volume 0;act c2.volume 0;demo" 25 > /dev/null
+    T "act masterVol 0;act headVol 0;loadtitle 0 Night Drive;loadtitle 1 Sunset Groove" 8 > /dev/null
+    # medir con la compu tranquila: que termine el análisis de los temas de demostración (BPM, tono, waveform)
+    for i in $(seq 1 30); do T "libstate" 1 | head -1 | grep -q "analyzing=0" && break; sleep 2; done
+    sleep 3
+    # la placa USB (interfaz, controladora) si hay; si no, la primera
+    card=$(for c in /proc/asound/card[0-9]*; do [ -e "$c/usbid" ] && sed -n "s/^ *${c##*card} \[.*\]: .* - //p" /proc/asound/cards; done | head -1)
+    [ -n "$card" ] || card=$(sed -n 's/^ *[0-9]* \[.*\]: .* - //p' /proc/asound/cards | head -1)
+    for buf in 256 128; do
+        r=$(T "audiodev ALSA Direct|$card|48000|$buf" 5)
+        if [[ $r != *OK* ]]; then bad "could not open '$card' directly at $buf samples: $r"; continue; fi
+        T "act masterVol 0;act headVol 0;press d1.play;press d2.play" 2 > /dev/null
+        before=$(T "state" 1 | sed -n 's/^dropouts=\([0-9]*\).*/\1/p')
+        sleep 60
+        s=$(T "state" 1); after=$(sed -n 's/^dropouts=\([0-9]*\).*/\1/p' <<< "$s")
+        T "press d1.play;press d2.play" 1 > /dev/null
+        d=$(( ${after:-0} - ${before:-0} ))
+        info=$(T "audioinfo" 1 | grep '^device' | grep -oE 'latencyMs=[0-9.]+|rt="[^"]*"' | tr '\n' ' ')
+        [ "$d" -eq 0 ] && pass "'$card', $buf samples, 2 decks for 60 s: 0 dropouts  $info" || bad "'$card', $buf samples: $d dropouts in 60 s  $info"
+    done
+    T "quit" 5 > /dev/null
+    kill "$pid" 2> /dev/null
+fi
+
+title "Summary"
+echo "  $ok OK, $warn to check"
+virt=$(systemd-detect-virt 2> /dev/null)
+[ -n "$virt" ] && [ "$virt" != none ] && echo "  (running inside a virtual machine: $virt — its emulated sound card makes dropout counts meaningless)"
+echo "  Report saved in $REPORT"
+echo
+read -r -p "Run the full system latency test too (10 minutes, asks your password)? [y/N] " a
+if [[ ${a,,} == y* ]]; then sudo /usr/bin/djos-latency-test 10; fi
+echo; read -r -p "Press Enter to close." _

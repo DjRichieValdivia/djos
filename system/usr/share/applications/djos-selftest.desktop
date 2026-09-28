@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=DJOS Self-Test
+Comment=Check this PC for DJing: real-time audio, dropouts with your sound card, displays and controllers
+Icon=djoscenter
+Exec=konsole --hide-menubar -e /usr/libexec/djos/selftest
+Categories=System;Settings;

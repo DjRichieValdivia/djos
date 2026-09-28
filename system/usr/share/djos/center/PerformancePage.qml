@@ -58,6 +58,7 @@ PageBase {
             spacing: Kirigami.Units.largeSpacing
             QQC2.Button { icon.name: "utilities-system-monitor"; text: "System Monitor"; onClicked: djos.launch(["plasma-systemmonitor"]) }
             QQC2.Button { icon.name: "nvtop"; text: "GPU monitor"; onClicked: djos.terminal("nvtop") }
+            QQC2.Button { icon.name: "run-build"; text: "Run DJOS self-test…"; onClicked: djos.launch(["konsole", "--hide-menubar", "-e", "/usr/libexec/djos/selftest"]) }
         }
     }
 }

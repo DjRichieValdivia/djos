@@ -103,6 +103,7 @@ PageBase {
             QQC2.Button { icon.name: "plasmadiscover"; text: "Get apps & plugins"; onClicked: win.go("apps") }
             QQC2.Button { icon.name: "drive-harddisk"; text: "Music disks"; onClicked: win.go("disks") }
             QQC2.Button { icon.name: "org.rncbc.qpwgraph"; text: "Audio connections"; onClicked: djos.launch(["qpwgraph"]) }
+            QQC2.Button { icon.name: "run-build"; text: "Self-test this PC"; onClicked: djos.launch(["konsole", "--hide-menubar", "-e", "/usr/libexec/djos/selftest"]) }
             QQC2.Button { icon.name: "preferences-system"; text: "System Settings"; onClicked: djos.launch(["systemsettings"]) }
         }
     }
