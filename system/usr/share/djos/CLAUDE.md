@@ -58,3 +58,14 @@ its apps is English (US).
   `~/.local/state/djos/`) and sets each new monitor to its highest refresh rate (`display-setup`).
 - DJOS Center (`/usr/libexec/djos/center`, PySide6 + Kirigami QML in `/usr/share/djos/center`) is also listed in
   System Settings under the DJOS category.
+
+## DJ controllers whose sound card Linux doesn't know (e.g. Pioneer DDJ-FLX10, 2b73:0041)
+- Their MIDI works; the audio interface is vendor-specific (class 255). `/usr/libexec/djos/controller-audio status`
+  computes the channels of endpoints 0x01/0x82 from `wMaxPacketSize` and, only on an exact match with a kernel
+  recipe of the same Pioneer family (DDJ-800, DDJ-SR2, DDJ-RB, DDJ-RR…), `enable` binds snd-usb-audio with that
+  recipe via `new_id` (+ udev rule `/etc/udev/rules.d/90-djos-controller-audio.rules`, config
+  `/etc/djos/controller-audio.conf`). UI: DJOS Center > Audio ("Try compatible mode", "Turn off",
+  "Save device info" → `~/Desktop/djos-controller-info.txt` with `lsusb -v` and kernel messages).
+- If no recipe matches, write a proper quirk from that info file (see sound/usb/quirks-table.h Pioneer entries)
+  and add it to DJOS (a patched snd-usb-audio module would need building in the image); ask the user to keep the
+  master volume down when testing audio changes.

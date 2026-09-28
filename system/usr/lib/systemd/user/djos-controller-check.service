@@ -1,0 +1,8 @@
+[Unit]
+Description=DJOS: check the sound card of a connected DJ controller
+
+[Service]
+Type=oneshot
+# el aparato termina de presentarse (MIDI, audio) unos segundos después de enchufarlo
+ExecStartPre=/usr/bin/sleep 5
+ExecStart=/usr/libexec/djos/notices controllers

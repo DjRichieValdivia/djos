@@ -14,7 +14,20 @@ PageBase {
     readonly property var rates: [44100, 48000, 88200, 96000]
     readonly property var quanta: [32, 64, 128, 256, 512, 1024]
 
-    function refresh() { audio = JSON.parse(djos.audio()) }
+    property var controllers: []
+    property string ctlMessage: ""
+    property bool ctlBusy: false
+    function refresh() { audio = JSON.parse(djos.audio()); controllers = JSON.parse(djos.controllers()) }
+    Timer { interval: 5000; running: true; repeat: true; onTriggered: page.controllers = JSON.parse(djos.controllers()) }
+    Connections {
+        target: djos
+        function onJobDone(tag, code, output) {
+            if (tag !== "controller") return
+            page.ctlBusy = false
+            page.ctlMessage = output.trim()
+            page.refresh()
+        }
+    }
     Component.onCompleted: {
         refresh()
         rateBox.currentIndex = Math.max(0, rates.indexOf(audio.configuredRate))
@@ -38,6 +51,52 @@ PageBase {
             visible: page.audio.cards.length === 0
             text: "No sound cards found."
             opacity: 0.7
+        }
+    }
+
+    Card {
+        title: "DJ controller audio"
+        visible: page.controllers.length > 0
+        Repeater {
+            model: page.controllers
+            delegate: StatusRow {
+                required property var modelData
+                iconName: "audio-card"
+                warning: !modelData.audio
+                title: modelData.name + (modelData.audio ? (modelData.enabled ? ": audio on (compatible mode)" : ": audio on") : ": audio not supported by Linux yet")
+                subtitle: modelData.audio
+                          ? (modelData.enabled ? "Using the " + modelData.match + " recipe. If it sounds wrong, turn it off." : "")
+                          : modelData.match.length > 0
+                            ? "Its MIDI works. DJOS can drive its sound card with the recipe of the " + modelData.match
+                              + " (same Pioneer family: " + modelData.out + " outputs, " + modelData.in + " inputs). Turn the master and headphone volume down before trying."
+                            : "Its MIDI works, but no known recipe matches its sound card (" + modelData.out + " outputs, " + modelData.in + " inputs). Save the device info and send it so support can be added."
+                QQC2.Button {
+                    visible: !modelData.audio && modelData.match.length > 0
+                    enabled: !page.ctlBusy
+                    icon.name: "audio-card"
+                    text: "Try compatible mode"
+                    onClicked: { page.ctlBusy = true; djos.run("controller", ["pkexec", "/usr/libexec/djos/controller-audio", "enable", modelData.id]) }
+                }
+                QQC2.Button {
+                    visible: modelData.enabled
+                    enabled: !page.ctlBusy
+                    text: "Turn off"
+                    onClicked: { page.ctlBusy = true; djos.run("controller", ["pkexec", "/usr/libexec/djos/controller-audio", "disable", modelData.id]) }
+                }
+                QQC2.Button {
+                    visible: !modelData.audio
+                    icon.name: "document-save"
+                    text: "Save device info"
+                    onClicked: djos.run("controller", ["/usr/libexec/djos/controller-audio", "info"])
+                }
+            }
+        }
+        QQC2.Label {
+            visible: page.ctlMessage.length > 0
+            text: page.ctlMessage
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+            color: Kirigami.Theme.positiveTextColor
         }
     }
 

@@ -6,3 +6,7 @@ KERNEL=="cpu_dma_latency", GROUP="audio", MODE="0660"
 # Placas de audio USB (consolas DJ, interfaces): sin ahorro de energía del USB, que puede cortar el audio.
 ACTION=="add", SUBSYSTEM=="usb", ATTR{bInterfaceClass}=="01", TEST=="../power/control", ATTR{../power/control}="on"
 ACTION=="add", SUBSYSTEM=="usb", DRIVERS=="snd-usb-audio", TEST=="power/control", ATTR{power/control}="on"
+
+# Controladoras Pioneer DJ / AlphaTheta: al conectarlas, la sesión del usuario revisa si su placa de sonido
+# necesita el modo compatible (djos-controller-check.service avisa y manda a DJOS Center > Audio)
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="2b73", TAG+="systemd", ENV{SYSTEMD_USER_WANTS}+="djos-controller-check.service"

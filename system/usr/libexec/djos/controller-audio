@@ -1,0 +1,152 @@
+#!/usr/bin/bash
+# DJOS: audio de controladoras Pioneer DJ / AlphaTheta que Linux todavía no reconoce (p. ej. la DDJ-FLX10: su MIDI
+# anda, pero su placa de sonido usa una interfaz "de fabricante" que el kernel no conoce).
+#
+# Muchas controladoras Pioneer de la misma familia usan exactamente el mismo esquema (interfaz 0, salida por el
+# endpoint 0x01, entrada 0x82, 24 bits) y el kernel ya trae la receta de varias (DDJ-800, DDJ-SR2, DDJ-RB, DDJ-RR…).
+# Esta herramienta lee los descriptores USB de la controladora conectada, calcula cuántos canales tiene cada
+# endpoint y, sólo si coinciden exactamente con una receta conocida, le dice al driver que la use ("modo
+# compatible"). Si no coincide ninguna, no toca nada y guarda la información para agregarle soporte.
+#
+#   controller-audio status            estado en JSON (lo usa DJOS Center)
+#   controller-audio enable <vid:pid>  activar el modo compatible (root): ahora y cada vez que se conecte
+#   controller-audio disable <vid:pid> desactivarlo (root)
+#   controller-audio attach <vid:pid>  (regla de udev) aplicar lo guardado al conectar
+#   controller-audio info [archivo]    guardar descriptores y mensajes del kernel para soporte
+set -uo pipefail
+
+CONF=/etc/djos/controller-audio.conf          # líneas "vid:pid ref_vid:ref_pid"
+RULES=/etc/udev/rules.d/90-djos-controller-audio.rules
+NEWID=/sys/bus/usb/drivers/snd-usb-audio/new_id
+
+# Recetas del kernel (Linux 7.2, sound/usb/quirks-table.h) con el esquema de siempre de Pioneer:
+# interfaz 0 / alt 1, salida 0x01 y entrada 0x82, 24 bits. "pid canales_salida canales_entrada nombre"
+KNOWN="
+0029 6 6 DDJ-800
+001e 4 6 DDJ-SR2
+000e 4 2 DDJ-RB
+000d 6 4 DDJ-RR
+0017 8 8 Pioneer_0017
+0013 8 8 DJM-450
+"
+
+devices() {   # vid:pid de lo que está conectado de Pioneer DJ / AlphaTheta (2b73) y de Pioneer (08e4)
+    local d
+    for d in /sys/bus/usb/devices/*; do
+        [ -f "$d/idVendor" ] || continue
+        case "$(cat "$d/idVendor")" in 2b73|08e4) echo "$(cat "$d/idVendor"):$(cat "$d/idProduct") ${d##*/}" ;; esac
+    done
+}
+
+has_pcm() {   # has_pcm vid:pid -> 0 si ALSA ya tiene audio (PCM) para ese aparato
+    local c
+    for c in /proc/asound/card*; do
+        [ "$(cat "$c/usbid" 2>/dev/null)" = "$1" ] || continue
+        ls "$c"/pcm* > /dev/null 2>&1 && return 0
+    done
+    return 1
+}
+
+# channels vid:pid -> "out in" según wMaxPacketSize de los endpoints 0x01 y 0x82 de la interfaz 0 (24 bits)
+channels() {
+    local id=$1 sysdev=$2 speed spp_list out in
+    speed=$(cat "/sys/bus/usb/devices/$sysdev/speed" 2>/dev/null || echo 480)
+    # muestras por paquete a 44,1/48 kHz: USB 2.0 (8000 paquetes/s) 6 o 7; USB 1.1 (1000/s) 45 a 49
+    if [ "$speed" -ge 480 ]; then spp_list="6 7"; else spp_list="45 46 48 49"; fi
+    read -r out in < <(lsusb -v -d "$id" 2>/dev/null | awk '
+        /bInterfaceNumber/ { ifn = $2 }
+        /bEndpointAddress/ { ep = $2 }
+        /wMaxPacketSize/ { v = $2; if (v ~ /^0x/) v = strtonum(v); sub(/ .*/, "", v)
+                          if (ifn == 0 && ep == "0x01" && v > o) o = v
+                          if (ifn == 0 && ep == "0x82" && v > i) i = v }
+        END { print o + 0, i + 0 }')
+    local best_o="" best_i="" s
+    for s in $spp_list; do
+        [ -z "$best_o" ] && [ "$out" -gt 0 ] && [ $((out % (3 * s))) -eq 0 ] && best_o=$((out / (3 * s)))
+        [ -z "$best_i" ] && [ "$in" -gt 0 ] && [ $((in % (3 * s))) -eq 0 ] && best_i=$((in / (3 * s)))
+    done
+    echo "${best_o:-0} ${best_i:-0}"
+}
+
+candidate() {   # candidate out in -> pid de la receta que coincide (o nada)
+    echo "$KNOWN" | awk -v o="$1" -v i="$2" 'NF == 4 && $2 == o && $3 == i { print $1 " " $4; exit }'
+}
+
+name_of() { cat "/sys/bus/usb/devices/$1/product" 2>/dev/null || echo "Pioneer DJ device"; }
+
+apply_newid() {   # apply_newid vid:pid ref_vid:ref_pid
+    local v=${1%:*} p=${1#*:} rv=${2%:*} rp=${2#*:}
+    modprobe snd-usb-audio 2> /dev/null
+    # clase 255 (interfaz de fabricante), con la receta (driver_info) del aparato de referencia
+    echo "$v $p ff $rv $rp" > "$NEWID" 2> /dev/null || true
+}
+
+case "${1:-status}" in
+status)
+    printf '['
+    first=1
+    while read -r id sysdev; do
+        [ -n "$id" ] || continue
+        # sólo lo que tiene interfaz de audio de fabricante (una placa de sonido que Linux no maneja)
+        lsusb -v -d "$id" 2> /dev/null | grep -q "bInterfaceClass *255" || continue
+        read -r o i < <(channels "$id" "$sysdev")
+        cand=$(candidate "$o" "$i")
+        enabled=false; grep -q "^$id " "$CONF" 2> /dev/null && enabled=true
+        audio=false; has_pcm "$id" && audio=true
+        [ $first -eq 0 ] && printf ','; first=0
+        printf '{"id":"%s","name":"%s","audio":%s,"out":%d,"in":%d,"match":"%s","enabled":%s}' \
+            "$id" "$(name_of "$sysdev" | sed 's/"//g')" "$audio" "$o" "$i" "${cand#* }" "$enabled"
+    done < <(devices)
+    printf ']\n'
+    ;;
+enable)
+    id=${2:?vid:pid}
+    sysdev=$(devices | awk -v i="$id" '$1 == i { print $2; exit }')
+    [ -n "$sysdev" ] || { echo "Connect the controller first."; exit 1; }
+    read -r o i < <(channels "$id" "$sysdev")
+    cand=$(candidate "$o" "$i")
+    [ -n "$cand" ] || { echo "No compatible recipe for $o outputs / $i inputs. Use 'Save device info' and send it to add support."; exit 2; }
+    ref="2b73:${cand%% *}"
+    mkdir -p "${CONF%/*}"
+    grep -v "^$id " "$CONF" 2> /dev/null > "$CONF.new"; echo "$id $ref" >> "$CONF.new"; mv "$CONF.new" "$CONF"
+    # cada vez que se conecte, aplicar la receta
+    cat > "$RULES" <<EOF
+# DJOS: audio en modo compatible para controladoras Pioneer (DJOS Center > Audio). Se quita desde ahí mismo.
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="2b73", RUN+="/usr/libexec/djos/controller-audio attach \$attr{idVendor}:\$attr{idProduct}"
+EOF
+    udevadm control --reload 2> /dev/null
+    apply_newid "$id" "$ref"
+    sleep 2
+    if has_pcm "$id"; then echo "Audio enabled with the ${cand#* } recipe ($o outputs / $i inputs)."
+    else echo "Recipe ${cand#* } set. Unplug the controller and plug it in again (or restart) to use its audio."; fi
+    ;;
+disable)
+    id=${2:?vid:pid}
+    grep -v "^$id " "$CONF" 2> /dev/null > "$CONF.new"; mv "$CONF.new" "$CONF"
+    [ -s "$CONF" ] || rm -f "$CONF" "$RULES"
+    udevadm control --reload 2> /dev/null
+    echo "${id%:*} ${id#*:}" > /sys/bus/usb/drivers/snd-usb-audio/remove_id 2> /dev/null || true
+    echo "Compatible mode is off. Unplug the controller and plug it in again (or restart)."
+    ;;
+attach)
+    id=${2:-}
+    ref=$(awk -v i="$id" '$1 == i { print $2; exit }' "$CONF" 2> /dev/null)
+    [ -n "$ref" ] && apply_newid "$id" "$ref"
+    exit 0
+    ;;
+info)
+    out=${2:-$HOME/Desktop/djos-controller-info.txt}
+    mkdir -p "$(dirname "$out")"
+    {
+        echo "DJOS controller info ($(date -u +%F))"; uname -r; echo
+        while read -r id sysdev; do
+            [ -n "$id" ] || continue
+            echo "===== $id $(name_of "$sysdev")"; lsusb -v -d "$id" 2>&1; echo
+        done < <(devices)
+        echo "===== /proc/asound/cards"; cat /proc/asound/cards
+        echo "===== kernel"; journalctl -k -b --no-pager 2>/dev/null | grep -iE "usb|snd|audio" | tail -60
+    } > "$out"
+    echo "$out"
+    ;;
+*) echo "usage: controller-audio status|enable|disable|attach|info" >&2; exit 2 ;;
+esac

@@ -2,8 +2,20 @@
 # DJOS: avisos importantes al iniciar sesión (con explicación de qué hacer)
 #   - Secure Boot sin autorizar la clave del driver de NVIDIA: gráficos básicos y un solo monitor
 #   - hay una placa NVIDIA pero su driver no está cargado (por otra razón)
+#   - una controladora Pioneer conectada cuya placa de sonido Linux no maneja (también al enchufarla:
+#     "notices controllers", desde djos-controller-check.service)
 set -u
 nvidia_gpu() { lspci -d 10de: 2>/dev/null | grep -qiE 'vga|3d controller|display'; }
+
+controller_notice() {   # p. ej. DDJ-FLX10: su MIDI anda, su audio necesita el modo compatible de DJOS Center
+    local ctl name
+    ctl=$(/usr/libexec/djos/controller-audio status 2> /dev/null)
+    name=$(jq -r '[.[]? | select(.audio == false)][0].name // empty' <<< "${ctl:-[]}" 2> /dev/null)
+    [ -n "$name" ] || return 0
+    notify-send -a DJOS -i audio-card "Set up the audio of your $name" \
+        "Its MIDI already works. DJOS can try a compatible mode for its sound card: open DJOS Center > Audio."
+}
+if [ "${1:-}" = controllers ]; then controller_notice; exit 0; fi
 
 if [ -e /var/lib/djos/mok-pending ]; then
     notify-send -a DJOS -u critical -i video-display \
@@ -16,6 +28,8 @@ elif nvidia_gpu && [ ! -e /proc/driver/nvidia/version ]; then
         "The NVIDIA graphics driver is not running" \
         "DJOS is using basic graphics (only one monitor). Restart once; if it keeps happening, open 'Update DJOS'."
 fi
+
+controller_notice
 
 # Richie DJ fijo en la barra de tareas: una sola vez por usuario, recién cuando la app ya está instalada (si el
 # usuario después lo saca de la barra, se respeta)

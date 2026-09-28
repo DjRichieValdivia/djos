@@ -150,6 +150,11 @@ class Backend(QObject):
             out(["pw-metadata", "-n", "settings", "0", k, str(v)])
         return True
 
+    @Slot(result=str)
+    def controllers(self):
+        """Controladoras Pioneer conectadas cuya placa de sonido Linux no maneja (ver controller-audio)."""
+        return out(["/usr/libexec/djos/controller-audio", "status"], timeout=15).strip() or "[]"
+
     # --- rendimiento ----------------------------------------------------------------------------------------------
     @Slot(result=str)
     def powerProfile(self):

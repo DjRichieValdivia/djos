@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- DJOS: activar o quitar el audio en modo compatible de una controladora Pioneer (DJOS Center > Audio).
+     Cambia la configuración del sistema: pide la contraseña (una vez por un rato). -->
+<policyconfig>
+  <action id="org.djos.controller-audio">
+    <description>Set up the audio of a DJ controller</description>
+    <message>DJOS needs your password to set up your controller's audio</message>
+    <icon_name>audio-card</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/djos/controller-audio</annotate>
+  </action>
+</policyconfig>
