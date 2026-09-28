@@ -31,7 +31,17 @@ plugins_for_all() {   # plugins_for_all <id>…: cada paquete, para cada versió
     flatpak install --system -y --noninteractive flathub "${refs[@]}"
 }
 
+# Flathub para todo el sistema: en Fedora puede no estar, o estar apagado (repositorios de terceros sin activar)
+ensure_flathub() {
+    flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo 2> /dev/null
+    if flatpak remotes --system --show-disabled --columns=name,options 2> /dev/null | awk '$1 == "flathub"' | grep -q disabled; then
+        flatpak remote-modify --system --enable flathub
+    fi
+    return 0
+}
+
 cmd=${1:-}; shift || true
+case "$cmd" in install|plugins) ensure_flathub ;; esac
 case "$cmd" in
     install)
         flatpak install --system -y --noninteractive flathub "$@" || exit 1

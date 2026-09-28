@@ -1,0 +1,115 @@
+#!/usr/bin/bash
+# DJOS Optimizer: conecta esta PC con GitHub (una sola vez) para bajar Richie DJ y las actualizaciones de DJOS, que
+# son privadas. No se pega ningún código secreto: se entra con el navegador (gh, "device flow") y lo que se guarda
+# para la PC es un acceso que alcanza para leer los paquetes (read:packages).
+#   connect            (usuario, en una terminal) inicia sesión con gh si hace falta y guarda el acceso de la PC
+#   connect store [u]  (root, vía pkexec) lee el token por la entrada estándar, lo prueba contra ghcr.io y lo guarda
+#                      en /etc/djos/registry-auth.json (0600, formato containers-auth). El token nunca se muestra.
+#   connect status     (usuario) exit 0 si esta PC ya está conectada, 1 si no
+set -u
+AUTH=${DJOS_AUTHFILE:-/etc/djos/registry-auth.json}
+REGISTRY=ghcr.io
+
+_env=$(declare -p DJOS_APP_IMAGE DJOS_OPTIMIZER_IMAGE DJOS_SKIP_GITHUB 2> /dev/null)
+for _f in /usr/share/djos/source.conf /etc/djos/source.conf; do
+    # shellcheck source=/dev/null
+    [ -r "$_f" ] && . "$_f"
+done
+eval "$_env"; unset _env _f
+
+# --- root: guardar el acceso ---------------------------------------------------------------------------------------
+store() {
+    local login=${1:-} token tmp out img
+    [ "$(id -u)" = 0 ] || { echo "ERROR: this part runs as root (pkexec)."; exit 1; }
+    IFS= read -r token || true
+    token=${token%$'\r'}
+    [ -n "$token" ] || { echo "ERROR: no access code was received."; exit 1; }
+    case "$login" in ''|*[!A-Za-z0-9-]*) login=djos ;; esac   # usuario de GitHub (ghcr.io lo pide, no lo valida)
+    install -d -m 0755 "${AUTH%/*}"
+    tmp=$(mktemp "${AUTH%/*}/.registry-auth.XXXXXX") || exit 1
+    chmod 0600 "$tmp"
+    echo '{}' > "$tmp"
+    # skopeo login prueba el acceso contra el registro y lo escribe en formato containers-auth
+    if ! out=$(skopeo login --authfile "$tmp" -u "$login" --password-stdin "$REGISTRY" <<< "$token" 2>&1); then
+        unset token; rm -f "$tmp"
+        echo "ERROR: GitHub did not accept the access: $(tail -n 1 <<< "$out")"
+        exit 1
+    fi
+    unset token
+    chmod 0600 "$tmp" && mv -f "$tmp" "$AUTH"
+    restorecon "$AUTH" 2> /dev/null
+    echo "OK"
+    # ¿esta cuenta ve los paquetes privados? (si no, el dueño tiene que darle acceso)
+    for img in ${DJOS_APP_IMAGE:-} ${DJOS_OPTIMIZER_IMAGE:-}; do
+        if ! out=$(skopeo inspect --authfile "$AUTH" --retry-times 2 --format '{{.Digest}}' "docker://$img" 2>&1); then
+            echo "WARNING: this GitHub account can't read $img: $(tail -n 1 <<< "$out")"
+        fi
+    done
+    # empieza a bajar Richie DJ y las actualizaciones ya mismo, en segundo plano (si no está sonando un set)
+    systemctl start --no-block djos-update.service > /dev/null 2>&1
+    exit 0
+}
+
+# --- usuario: iniciar sesión con gh --------------------------------------------------------------------------------
+pause() { $interactive && { echo; read -r -p "Press Enter to close this window." _; }; }
+
+has_scope() {   # la sesión de gh tiene el permiso read:packages
+    gh api -i user 2> /dev/null | tr -d '\r' | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes: *//p' \
+        | tr ',' '\n' | sed 's/^ *//' | grep -qx 'read:packages'
+}
+
+connect_user() {
+    local clip=() login out
+    echo "Connect GitHub"
+    echo "=============="
+    echo
+    echo "Richie DJ and the DJOS updates are private on GitHub. This connects this PC to them (only once)."
+    echo "Nothing to paste: you sign in to GitHub in your browser and type the code shown below."
+    echo
+    if [ "${DJOS_SKIP_GITHUB:-0}" = 1 ]; then echo "DJOS_SKIP_GITHUB=1: skipped."; return 0; fi
+    if ! command -v gh > /dev/null; then
+        echo "Installing the GitHub tool (gh)…"
+        pkcon install -y --noninteractive gh > /dev/null 2>&1 || pkexec dnf5 install -y gh
+        command -v gh > /dev/null || { echo "Could not install gh. Check the internet connection and try again."; return 1; }
+    fi
+    gh auth login --help 2> /dev/null | grep -q -- '--clipboard' && clip=(--clipboard)
+    if gh auth status --hostname github.com > /dev/null 2>&1; then
+        if ! has_scope; then
+            echo "Your GitHub session needs one more permission (read packages)."
+            echo "Press Enter below: your browser opens GitHub; type the code shown here and click Authorize."
+            echo
+            gh auth refresh --hostname github.com -s read:packages "${clip[@]}" || { echo "GitHub did not finish the sign-in."; return 1; }
+        fi
+    else
+        echo "1) Press Enter below: your browser opens GitHub (sign in if it asks)."
+        echo "2) Type the code shown here (${clip:+it is already copied, just paste it with Ctrl+V; }like ABCD-1234) and click Authorize."
+        echo
+        gh auth login --hostname github.com --web --git-protocol https --skip-ssh-key -s read:packages "${clip[@]}" \
+            || { echo "GitHub did not finish the sign-in. Run Connect GitHub again."; return 1; }
+    fi
+    has_scope || { echo "The GitHub session doesn't have the read:packages permission. Run Connect GitHub again."; return 1; }
+    login=$(gh api user --jq .login 2> /dev/null)
+    echo
+    echo "Saving the access for this PC (your password may be asked)…"
+    # el token pasa por un caño, nunca por la pantalla ni por la línea de comandos
+    out=$(gh auth token --hostname github.com 2> /dev/null | pkexec /usr/libexec/djos/connect store "$login")
+    printf '%s\n' "$out" | grep -v '^OK$'
+    if printf '%s\n' "$out" | grep -qx 'OK'; then
+        echo "Done: this PC is connected. Richie DJ and the DJOS updates now download by themselves (never during a set)."
+        return 0
+    fi
+    echo "It didn't work. Nothing was changed; you can try again."
+    return 1
+}
+
+interactive=false
+case "${1:-}" in
+    store) shift; store "$@" ;;
+    status) [ -s "$AUTH" ]; exit $? ;;
+    ''|--no-pause)
+        [ -t 0 ] && [ "${1:-}" != --no-pause ] && interactive=true
+        connect_user; rc=$?
+        pause
+        exit $rc ;;
+    *) echo "Usage: $0 [store [github-user]|status|--no-pause]" >&2; exit 2 ;;
+esac

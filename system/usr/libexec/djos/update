@@ -1,59 +1,430 @@
 #!/usr/bin/bash
-# DJOS: botón "Update DJOS" (se abre en una terminal)
-#   update           muestra la versión y ofrece buscar actualizaciones o pasar a la versión nueva
-#   update major     pasa directo a la versión nueva (desde el aviso)
-#   update --root …  lo hace como administrador (lo llama pkexec)
+# DJOS Optimizer: las actualizaciones, sin sorpresas y nunca durante un set.
+#   update check              (root: timer djos-update y botones "Check now" vía polkit) solo si gig-guard deja:
+#                             baja y prueba las actualizaciones de Fedora (transacción offline de dnf5, SIN armar:
+#                             al arrancar no se instala nada salvo que el usuario elija "Install & …"), actualiza los
+#                             Flatpak, Richie DJ (app-update, se cambia solo con el programa cerrado), el propio
+#                             djos-optimizer y se fija si hay una versión nueva de Fedora recomendable
+#   update status             (usuario) el estado en JSON (/var/lib/djos/update-status.json, corregido en vivo)
+#   update install-shutdown   (root) reinicia, instala lo preparado y apaga
+#   update install-reboot     (root) reinicia, instala lo preparado y vuelve a arrancar
+#   update release-upgrade    (root, mejor en una terminal) baja la versión nueva de Fedora y reinicia para instalarla
+#   update                    resumen para leer en la terminal
+# Salida: 0 bien, 1 error, 2 uso, 3 está sonando un set (no se hizo nada), 4 no había nada para hacer.
+# shellcheck disable=SC2016  # los $ de los filtros de jq son de jq
 set -u
+export LC_ALL=C.UTF-8   # la salida de dnf5 se lee en inglés
 
-pause() { echo; read -r -p "Press Enter to close this window." _; }
+LIBEXEC=/usr/libexec/djos
+STATE=${DJOS_STATE_DIR:-/var/lib/djos}
+SF=$STATE/update-status.json
+RUN=${DJOS_RUN_DIR:-/run/djos}
+AUTH=${DJOS_AUTHFILE:-/etc/djos/registry-auth.json}
+OFFDIR=/usr/lib/sysimage/libdnf5/offline   # donde dnf5 guarda la transacción offline
+RELEASE_DAYS=28                            # una versión nueva de Fedora se ofrece 4 semanas después de salir
 
-if [ "${1:-}" = --root ]; then
-    ref=$(bootc status --json | jq -r '.status.booted.image.image.image // empty')
-    repo=${ref%:*}
-    if [ ! -s /etc/ostree/auth.json ]; then
-        echo "Updates are not set up yet: open \"Set Up DJOS Updates\" from the app menu first."
-        exit 0
+# origen: lo genera el build (/usr/share/djos/source.conf), /etc/djos/source.conf lo pisa y el entorno gana (pruebas)
+_env=$(declare -p DJOS_OWNER DJOS_APP_IMAGE DJOS_OPTIMIZER_IMAGE DJOS_APP_SOURCE DJOS_OPTIMIZER_SOURCE \
+       DJOS_LOCAL_RPM DJOS_SKIP_GITHUB 2> /dev/null)
+for _f in /usr/share/djos/source.conf /etc/djos/source.conf; do
+    # shellcheck source=/dev/null
+    [ -r "$_f" ] && . "$_f"
+done
+eval "$_env"; unset _env _f
+
+# --- estado (/var/lib/djos/update-status.json) -------------------------------------------------------------------
+default_status() {
+    jq -n '{time: 0,
+            system: {state: "up-to-date", count: 0, error: ""},
+            apps: {},
+            optimizer: {state: "up-to-date", installed: "", available: "", error: ""},
+            release: {available: "", ready: false, prepared: false, date: "", checked: 0},
+            connected: false}'
+}
+
+read_status() {   # el archivo tal cual, completado con los campos que falten
+    local cur
+    cur=$(cat "$SF" 2> /dev/null)
+    jq -e 'type == "object"' <<< "$cur" > /dev/null 2>&1 || cur='{}'
+    jq -s '.[0] * .[1]' <(default_status) - <<< "$cur"
+}
+
+status_edit() {   # status_edit [opciones de jq…] <filtro>: cambia el estado de forma atómica (con lock)
+    install -d -m 0755 "$STATE"
+    (
+        flock 8
+        read_status | jq "$@" > "$SF.tmp.$$" && chmod 0644 "$SF.tmp.$$" && mv -f "$SF.tmp.$$" "$SF"
+        rm -f "$SF.tmp.$$"
+    ) 8> "$STATE/.status.lock"
+}
+
+set_system() {   # set_system <estado> [cantidad] [error]
+    status_edit --arg s "$1" --argjson n "${2:-0}" --arg e "${3:-}" '.system = {state: $s, count: $n, error: $e}'
+}
+
+set_optimizer() {   # set_optimizer <estado> <instalada> <disponible> [error]
+    status_edit --arg s "$1" --arg i "$2" --arg a "$3" --arg e "${4:-}" \
+        '.optimizer = {state: $s, installed: $i, available: $a, error: $e}'
+}
+
+connected() { [ -s "$AUTH" ]; }   # se puede mirar sin ser root (solo stat)
+
+status_json() {   # el estado, corregido con lo que se ve ahora (lo corre el usuario: no escribe nada)
+    local st pending=false live=false pid ver target=""
+    st=$(read_status)
+    offline_pending && pending=true
+    offline_release && target=$(offline_get target_releasever)
+    pid=$(cat "$RUN/check.pid" 2> /dev/null)
+    [ -n "$pid" ] && [ -d "/proc/$pid" ] && live=true
+    ver=$(optimizer_version)
+    jq --argjson pending "$pending" --argjson live "$live" --argjson conn "$(connected && echo true || echo false)" \
+       --arg ver "$ver" --arg target "$target" '
+        .connected = $conn
+        # la versión nueva de Fedora ya bajada (release-upgrade): se instala con "Install & …"
+        | if $target != "" then .release.available = $target | .release.ready = true | .release.prepared = true else . end
+        | if $ver != "" then .optimizer.installed = $ver else . end
+        # lo preparado ya se instaló (o se descartó): no queda nada listo
+        | if .system.state == "ready" and ($pending | not) then .system.state = "up-to-date" | .system.count = 0 else . end
+        | if .release.prepared and ($pending | not) then .release.prepared = false else . end
+        # una búsqueda que se cortó (apagado, corte de luz) no queda "buscando" para siempre
+        | if .system.state == "checking" and ($live | not)
+          then .system.state = "error" | .system.error = "The last check did not finish" else . end' <<< "$st"
+}
+
+summary() {   # resumen legible
+    status_json | jq -r '
+        def when: if . > 0 then (. | strflocaltime("%Y-%m-%d %H:%M")) else "never" end;
+        "Fedora updates:  " + (
+            if .system.state == "ready" then "ready (\(.system.count) packages): choose Install & restart or Install & shut down"
+            elif .system.state == "up-to-date" then "up to date"
+            elif .system.state == "checking" then "checking now…"
+            elif .system.state == "offline" then "no internet connection"
+            elif .system.state == "not-connected" then "not connected"
+            else "error: \(.system.error)" end),
+        (.apps | to_entries[] | "\(.value.name // .key):  " + .value.state + (if (.value.version // "") != "" then " (\(.value.version))" else "" end)),
+        "DJOS Optimizer:  \(.optimizer.installed) (" + .optimizer.state
+            + (if .optimizer.available != "" and .optimizer.available != .optimizer.installed then ", available \(.optimizer.available)" else "" end) + ")",
+        (if .release.ready then "New Fedora release: \(.release.available) is ready (DJOS Center > Updates)"
+         elif .release.available != "" then "New Fedora release: \(.release.available) is out; DJOS offers it 4 weeks after its release"
+         else empty end),
+        (if .connected then empty else "GitHub:  not connected (DJOS Center > Updates > Connect GitHub)" end),
+        "Last check:  " + (.time | when)'
+}
+
+# --- utilidades ---------------------------------------------------------------------------------------------------
+need_root() { [ "$(id -u)" = 0 ] || { echo "This needs administrator rights: pkexec $0 $1" >&2; exit 1; }; }
+
+playing() { [ -x "$LIBEXEC/gig-guard" ] && ! "$LIBEXEC/gig-guard"; }
+
+online() { curl -fsS -o /dev/null --max-time 20 --retry 2 https://fedoraproject.org/static/hotspot.txt 2> /dev/null; }
+
+last_line() { grep -v '^[[:space:]]*$' "$1" 2> /dev/null | tail -n 1 | cut -c1-300; }
+
+lock() {   # un solo trabajo de actualización a la vez; si hay otro, se espera
+    install -d -m 0755 "$RUN"
+    exec 9> "$RUN/update.lock"
+    if ! flock -n 9; then
+        echo "Another update task is running; waiting for it to finish…"
+        flock 9
+        return 1
     fi
-    case "${2:-}" in
-        normal|check)   # check: lo mismo, desde el panel "DJOS Updates" (sin terminal)
-            echo "Checking for updates…"
-            bootc upgrade && echo && echo "Done. If there was anything new, it will be applied the next time you restart."
-            if [ -s /etc/djos/apps.conf ]; then
-                echo; echo "Checking your apps…"
-                /usr/libexec/djos/app-update
-            fi
-            mkdir -p /var/lib/djos && touch /var/lib/djos/last-check
-            ;;
-        major)
-            v=$(cat /var/lib/djos/new-version 2>/dev/null)
-            [ -n "$v" ] || { echo "No new version is available."; exit 0; }
-            echo "Downloading DJOS $v (this takes a few minutes)…"
-            bootc switch "$repo:$v" && rm -f /var/lib/djos/new-version \
-                && echo && echo "Done. DJOS $v will be applied the next time you restart." \
-                && echo "If something doesn't work, pick the previous version in the boot menu."
-            ;;
+    return 0
+}
+
+offline_get() {   # offline_get <clave>: dato de la transacción offline guardada por dnf5 ("" si no hay)
+    sed -n "s/^$1 = \"\?\([^\"]*\)\"\?\$/\1/p" "$OFFDIR/offline-transaction-state.toml" 2> /dev/null | head -n 1
+}
+
+offline_pending() {   # hay algo bajado y probado, sin instalar
+    case "$(offline_get status)" in download-complete|ready) return 0 ;; esac
+    return 1
+}
+
+offline_release() { offline_pending && [ "$(offline_get verb)" = "system-upgrade download" ]; }
+
+offline_count() {
+    jq '[.rpms[]? | select(.action != "Replaced")] | length' "$OFFDIR/transaction.json" 2> /dev/null || echo 0
+}
+
+disarm() {   # si dnf5 dejó armado el arranque y no pudo reiniciar, se desarma (nada se instala por sorpresa)
+    [ "$(readlink /system-update 2> /dev/null)" = "$OFFDIR" ] && rm -f /system-update
+}
+
+optimizer_version() { rpm -q --qf '%{VERSION}' djos-optimizer 2> /dev/null | grep -v 'not installed'; }
+
+valid_version() { [[ ${1:-} =~ ^[0-9A-Za-z._+~^]+$ ]]; }
+
+newer() {   # newer <a> <b>: a es más nueva que b (comparación de rpm)
+    valid_version "$1" && valid_version "$2" || return 1
+    [ "$(rpm --eval "%{lua: print(rpm.vercmp('$1', '$2'))}")" = 1 ]
+}
+
+registry_state() {   # registry_state <error de skopeo>: not-connected (sin permiso) o unreachable
+    case "$1" in
+        *unauthorized*|*denied*|*"authentication required"*|*401*|*403*) echo not-connected ;;
+        *) echo unreachable ;;
     esac
-    exit 0
-fi
+}
 
-if [ "${1:-}" = major ]; then
-    pkexec /usr/libexec/djos/update --root major
-    pause; exit 0
-fi
+fetch_rpm() {   # fetch_rpm <origen> <carpeta> [--authfile …]: baja la imagen chiquita del optimizador y dice dónde
+                # quedó el .rpm que trae en /rpm
+    local src=$1 dir=$2 l
+    shift 2
+    mkdir -p "$dir/img" "$dir/root"
+    skopeo copy -q "$@" --retry-times 2 "$src" "dir:$dir/img" > /dev/null 2>&1 || return 1
+    for l in $(jq -r '.layers[].digest' "$dir/img/manifest.json" 2> /dev/null); do
+        tar -xf "$dir/img/${l#*:}" -C "$dir/root" 2> /dev/null   # gzip, zstd o sin comprimir: tar lo reconoce
+    done
+    find "$dir/root/rpm" -maxdepth 1 -name '*.rpm' 2> /dev/null | head -n 1 | grep .
+}
 
-. /etc/os-release
-echo "$PRETTY_NAME"
-rpm-ostree status -b 2>/dev/null | sed -n 's/^ *Version: /Installed version: /p' | head -1
-echo
-new=$(cat /var/lib/djos/new-version 2>/dev/null)
-echo "1) Check for updates now (applied on next restart)"
-[ -n "$new" ] && echo "2) Upgrade to DJOS $new (new Fedora release)"
-echo "0) Exit"
-echo
-read -r -p "Choose an option: " op
-case "$op" in
-    1) pkexec /usr/libexec/djos/update --root normal ;;
-    2) [ -n "$new" ] && pkexec /usr/libexec/djos/update --root major ;;
-    *) exit 0 ;;
+# --- partes de la búsqueda ----------------------------------------------------------------------------------------
+update_optimizer() {   # el propio djos-optimizer, desde su imagen privada (o DJOS_LOCAL_RPM / DJOS_OPTIMIZER_SOURCE)
+    local cur src avail out tmp="" rpm="" a=()
+    cur=$(optimizer_version)
+    if [ -n "${DJOS_LOCAL_RPM:-}" ]; then
+        rpm=$DJOS_LOCAL_RPM
+        avail=$(rpm -qp --qf '%{VERSION}' "$rpm" 2> /dev/null)
+    else
+        if [ -n "${DJOS_OPTIMIZER_SOURCE:-}" ]; then
+            src=$DJOS_OPTIMIZER_SOURCE
+        elif [ -n "${DJOS_OPTIMIZER_IMAGE:-}" ] && [ "${DJOS_SKIP_GITHUB:-0}" != 1 ]; then
+            src=docker://$DJOS_OPTIMIZER_IMAGE
+        else
+            set_optimizer up-to-date "$cur" "" "No update source configured"; return 0
+        fi
+        if [[ $src == docker://* ]]; then
+            connected || { set_optimizer not-connected "$cur" ""; return 0; }
+            a=(--authfile "$AUTH")
+        fi
+        if ! out=$(skopeo inspect "${a[@]}" --retry-times 2 "$src" 2>&1); then
+            echo "DJOS Optimizer: can't check for updates: $(tail -n 1 <<< "$out")"
+            set_optimizer "$(registry_state "$out")" "$cur" "" "$(tail -n 1 <<< "$out" | cut -c1-300)"; return 0
+        fi
+        avail=$(jq -r '.Labels["org.djos.version"] // empty' <<< "$out" 2> /dev/null)
+    fi
+    if ! valid_version "$avail"; then
+        set_optimizer error "$cur" "" "The update has no valid version"; return 0
+    fi
+    if [ -n "$cur" ] && ! newer "$avail" "$cur"; then
+        set_optimizer up-to-date "$cur" "$avail"; return 0
+    fi
+    if playing; then set_optimizer ready "$cur" "$avail"; return 0; fi   # se instala en la próxima vuelta
+    echo "DJOS Optimizer: installing $avail (installed: ${cur:-none})…"
+    if [ -z "$rpm" ]; then
+        tmp=$(mktemp -d /var/tmp/djos-optimizer.XXXXXX)
+        if ! rpm=$(fetch_rpm "$src" "$tmp" "${a[@]}"); then
+            rm -rf "$tmp"; set_optimizer error "$cur" "$avail" "Could not download the update"; return 0
+        fi
+    fi
+    if dnf5 install -y "$rpm" > "$RUN/dnf5-optimizer.log" 2>&1; then
+        echo "DJOS Optimizer: updated to $(optimizer_version)"
+        set_optimizer updated "$(optimizer_version)" "$avail"
+    else
+        echo "DJOS Optimizer: the update failed: $(last_line "$RUN/dnf5-optimizer.log")"
+        set_optimizer error "$cur" "$avail" "$(last_line "$RUN/dnf5-optimizer.log")"
+    fi
+    [ -n "$tmp" ] && rm -rf "$tmp"
+    return 0
+}
+
+prepare_system() {   # prepare_system [--refresh]: baja y prueba las actualizaciones de Fedora, sin armarlas
+    local log=$RUN/dnf5-check.log
+    if offline_release; then   # la versión nueva de Fedora ya está bajada: no se pisa
+        set_system ready "$(offline_count)"; return 0
+    fi
+    echo "Fedora: looking for updates…"
+    if ! dnf5 upgrade "$@" --offline -y > "$log" 2>&1; then
+        echo "Fedora: the check failed: $(last_line "$log")"
+        if offline_pending; then set_system ready "$(offline_count)" "$(last_line "$log")"
+        else set_system error 0 "$(last_line "$log")"; fi
+        return 1
+    fi
+    if grep -q '^Nothing to do' "$log"; then
+        # nada nuevo: si quedó algo preparado de antes, ya se instaló por otro lado (Discover, dnf): se descarta
+        offline_pending && dnf5 offline clean -y > /dev/null 2>&1
+        echo "Fedora: up to date"
+        set_system up-to-date 0
+    elif offline_pending; then
+        echo "Fedora: $(offline_count) packages downloaded, ready to install on restart or shutdown"
+        set_system ready "$(offline_count)"
+    else
+        set_system error 0 "$(last_line "$log")"
+    fi
+}
+
+update_flatpaks() {   # las apps de Flathub se actualizan al toque (la que esté abierta sigue con su versión)
+    command -v flatpak > /dev/null || return 0
+    echo "Flatpak: updating apps…"
+    flatpak update --system --noninteractive -y > "$RUN/flatpak.log" 2>&1 \
+        || echo "Flatpak: the update failed: $(last_line "$RUN/flatpak.log")"
+}
+
+nvidia_ready() {   # nvidia_ready <versión>: sin driver de NVIDIA no hay que esperar a nadie; con él, RPM Fusion
+                   # tiene que tener akmod-nvidia para esa versión de Fedora
+    rpm -q akmod-nvidia > /dev/null 2>&1 || return 0
+    dnf5 -q repoquery --releasever="$1" --repo=rpmfusion-nonfree --repo=rpmfusion-nonfree-updates \
+        --setopt=system_cachedir=/var/cache/djos/release-check --setopt=cachedir=/var/cache/djos/release-check \
+        --qf '%{name}\n' akmod-nvidia 2> /dev/null | grep -qx akmod-nvidia
+}
+
+check_release() {   # check_release [--force]: ¿salió la próxima Fedora hace 4 semanas o más? (una vez por día)
+    local cur n info st day age ready=false prepared=false now last
+    now=$(date +%s)
+    last=$(read_status | jq -r '.release.checked // 0')
+    [ "${1:-}" = --force ] || [ $((now - ${last:-0})) -ge 86400 ] || return 0
+    cur=$(. /etc/os-release && echo "${VERSION_ID:-0}")
+    case "$cur" in ''|*[!0-9]*) return 0 ;; esac
+    n=$((cur + 1))
+    info=$(curl -fsS --max-time 30 --retry 2 "https://bodhi.fedoraproject.org/releases/F$n" 2> /dev/null) || return 0
+    st=$(jq -r '.state // empty' <<< "$info" 2> /dev/null)
+    day=$(jq -r '.released_on // empty' <<< "$info" 2> /dev/null)
+    if [ "$st" != current ] || ! date -d "$day" > /dev/null 2>&1; then   # todavía no salió
+        status_edit --argjson t "$now" '.release = {available: "", ready: false, prepared: false, date: "", checked: $t}'
+        return 0
+    fi
+    age=$(( (now - $(date -d "$day" +%s)) / 86400 ))
+    if [ "$age" -ge "$RELEASE_DAYS" ]; then
+        if nvidia_ready "$n"; then ready=true
+        else echo "Fedora $n: waiting for RPM Fusion's NVIDIA driver"; fi
+    fi
+    offline_release && [ "$(offline_get target_releasever)" = "$n" ] && prepared=true
+    echo "Fedora $n: released $day ($age days ago)$($ready && echo ", ready to upgrade")"
+    status_edit --arg n "$n" --arg d "$day" --argjson r "$ready" --argjson p "$prepared" --argjson t "$now" \
+        '.release = {available: $n, ready: $r, prepared: $p, date: $d, checked: $t}'
+}
+
+# --- comandos -----------------------------------------------------------------------------------------------------
+do_check() {
+    local refresh=()
+    need_root check
+    if ! lock; then summary; exit 0; fi   # ya había una búsqueda en curso: se esperó a que termine
+    if playing; then echo "A set is playing: the check will run later."; exit 3; fi
+    # a la menor prioridad (también cuando se aprieta "Check now"): el audio nunca espera por esto
+    renice -n 19 -p $$ > /dev/null 2>&1; ionice -c 3 -p $$ > /dev/null 2>&1
+    echo $$ > "$RUN/check.pid"
+    # si algo corta la búsqueda, no queda "buscando" para siempre
+    trap 'rm -f "$RUN/check.pid"; [ "$(read_status | jq -r .system.state)" = checking ] && set_system error 0 "The check was interrupted"' EXIT
+    status_edit --argjson c "$(connected && echo true || echo false)" '.system.state = "checking" | .connected = $c'
+    [ -n "${PKEXEC_UID:-}" ] && refresh=(--refresh)   # a pedido del usuario: datos frescos
+    if ! online; then
+        echo "No internet connection."
+        if offline_pending; then set_system ready "$(offline_count)"; else set_system offline 0 "No internet connection"; fi
+        status_edit --argjson t "$(date +%s)" '.time = $t'
+        return 0
+    fi
+    update_optimizer
+    prepare_system "${refresh[@]}"
+    update_flatpaks
+    if [ -x "$LIBEXEC/app-update" ]; then echo "Richie DJ: checking…"; "$LIBEXEC/app-update"; fi
+    check_release ${refresh[0]:+--force}
+    status_edit --argjson t "$(date +%s)" '.time = $t'
+    echo
+    summary
+}
+
+arm_and_restart() {   # arm_and_restart [--poweroff]: dnf5 arma la instalación y reinicia (con --poweroff apaga al final)
+    local log=$RUN/dnf5-arm.log target
+    if dnf5 offline reboot -y "$@" > "$log" 2>&1; then return 0; fi
+    if grep -q 'modified since the offline transaction was prepared' "$log"; then
+        # se instaló algo después de preparar (p. ej. desde Discover): se vuelve a preparar (lo bajado se reusa)
+        echo "Preparing the updates again…"
+        if [ "$(offline_get verb)" = "system-upgrade download" ]; then
+            target=$(offline_get target_releasever)
+            dnf5 system-upgrade download --releasever="$target" -y > "$RUN/dnf5-check.log" 2>&1
+        else
+            dnf5 upgrade --offline -y > "$RUN/dnf5-check.log" 2>&1
+        fi
+        if grep -q '^Nothing to do' "$RUN/dnf5-check.log"; then   # ya estaba todo instalado
+            dnf5 offline clean -y > /dev/null 2>&1
+            set_system up-to-date 0
+            echo "Everything was already installed: there is nothing to install right now."
+            return 4
+        fi
+        if offline_pending && dnf5 offline reboot -y "$@" > "$log" 2>&1; then return 0; fi
+    fi
+    disarm
+    echo "Could not start the installation: $(last_line "$log")"
+    set_system error "$(offline_count)" "$(last_line "$log")"
+    return 1
+}
+
+install_now() {   # install_now poweroff|reboot
+    local a=()
+    [ "$1" = poweroff ] && a=(--poweroff)
+    if playing; then echo "A set is playing: nothing was installed. Try again when you stop."; exit 3; fi
+    lock || true
+    # Richie DJ: si ya bajó una versión nueva y está cerrado, se cambia ahora (sin internet)
+    [ -x "$LIBEXEC/app-update" ] && "$LIBEXEC/app-update" --swap-only
+    if ! offline_pending; then
+        echo "There is nothing to install right now."
+        exit 4
+    fi
+    if [ "$1" = poweroff ]; then
+        echo "Installing $(offline_count) updates: the PC restarts, installs them (a few minutes) and then shuts down."
+    else
+        echo "Installing $(offline_count) updates: the PC restarts, installs them (a few minutes) and starts again."
+    fi
+    arm_and_restart "${a[@]}" || exit $?
+}
+
+release_upgrade() {
+    local n ready tty=false log=$RUN/dnf5-release.log
+    [ -t 0 ] && [ -t 1 ] && tty=true
+    n=$(read_status | jq -r '.release.available')
+    ready=$(read_status | jq -r '.release.ready')
+    if [ -z "$n" ] || [ "$ready" != true ]; then
+        echo "No new Fedora release is ready for this PC yet."
+        $tty && read -r -p "Press Enter to close this window." _
+        exit 4
+    fi
+    if playing; then echo "A set is playing: try again when you stop."; exit 3; fi
+    lock || true
+    if offline_release && [ "$(offline_get target_releasever)" = "$n" ]; then
+        echo "Fedora $n is already downloaded."
+    else
+        echo "Downloading Fedora $n. It takes a while (a few GB); you can keep using the PC meanwhile."
+        echo
+        if $tty; then
+            dnf5 system-upgrade download --releasever="$n" -y 2>&1 | tee "$log"
+        else
+            dnf5 system-upgrade download --releasever="$n" -y > "$log" 2>&1
+        fi
+        if ! offline_release && $tty && grep -q -- '--allowerasing' "$log"; then
+            # algún paquete choca con la versión nueva: dnf5 muestra qué sacaría y pregunta
+            echo
+            echo "Some installed packages don't fit Fedora $n. Below is what would be removed; answer y to accept."
+            dnf5 system-upgrade download --releasever="$n" --allowerasing 2>&1 | tee "$log"
+        fi
+        if ! offline_release || [ "$(offline_get target_releasever)" != "$n" ]; then
+            echo "The download did not finish: $(last_line "$log")"
+            status_edit --arg e "$(last_line "$log")" '.release.error = $e'
+            $tty && read -r -p "Press Enter to close this window." _
+            exit 1
+        fi
+    fi
+    set_system ready "$(offline_count)"
+    status_edit '.release.prepared = true | .release.error = ""'
+    echo
+    echo "Fedora $n is ready to install. The PC restarts, installs it (20-40 minutes, don't turn it off) and"
+    echo "starts again by itself. Do it when you have no gigs coming up."
+    if $tty; then
+        read -r -p "Press Enter to restart and install now, or close this window to do it later from DJOS Center. " _ || exit 0
+    fi
+    arm_and_restart || { $tty && read -r -p "Press Enter to close this window." _; exit 1; }
+}
+
+usage() {
+    echo "Usage: $0 [check|status|install-shutdown|install-reboot|release-upgrade]" >&2
+}
+
+case "${1:-}" in
+    check) do_check ;;
+    status) status_json ;;
+    install-shutdown) need_root "$1"; install_now poweroff ;;
+    install-reboot) need_root "$1"; install_now reboot ;;
+    release-upgrade) need_root "$1"; release_upgrade ;;
+    '') summary ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage; exit 2 ;;
 esac
-pause

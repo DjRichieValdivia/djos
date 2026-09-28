@@ -1,0 +1,40 @@
+#!/usr/bin/sh
+# DJOS: "Windows" en el menú de arranque, para un Windows instalado en otro disco. Su partición EFI se busca por
+# archivo al arrancar (no importa el orden de los discos; si el disco no está conectado no aparece nada) y, con
+# Windows conectado, el menú se muestra 3 segundos (Fedora lo esconde cuando cree que hay un solo sistema).
+# Solo actúa si optimizer-setup lo activó (/var/lib/djos/windows-boot). Si os-prober ya puso Windows más arriba en
+# este mismo grub.cfg, la entrada no se repite. Se quita solo al desinstalar DJOS.
+set -e
+[ -e /var/lib/djos/windows-boot ] || exit 0
+
+# grub2-mkconfig escribe el menú nuevo en un archivo (nuestra salida): ¿ya tiene Windows?
+dup=0
+out=$(readlink "/proc/$$/fd/1" 2> /dev/null || true)
+case "$out" in
+    /*) if [ -f "$out" ] && grep -qi 'bootmgfw\.efi' "$out"; then dup=1; fi ;;
+esac
+
+cat << 'EOF'
+if [ "${grub_platform}" = "efi" ]; then
+  insmod part_gpt
+  insmod fat
+  if search --no-floppy --file --set=djos_win /EFI/Microsoft/Boot/bootmgfw.efi; then
+    set timeout_style=menu
+    if [ "${timeout}" = "0" ]; then set timeout=3; fi
+    if [ "${timeout}" = "1" ]; then set timeout=3; fi
+EOF
+if [ "$dup" = 0 ]; then
+    cat << 'EOF'
+    menuentry 'Windows' --class windows --class os --id djos-windows {
+      insmod part_gpt
+      insmod fat
+      insmod chain
+      search --no-floppy --file --set=root /EFI/Microsoft/Boot/bootmgfw.efi
+      chainloader /EFI/Microsoft/Boot/bootmgfw.efi
+    }
+EOF
+fi
+cat << 'EOF'
+  fi
+fi
+EOF

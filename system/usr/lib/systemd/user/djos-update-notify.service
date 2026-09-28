@@ -1,5 +1,6 @@
 [Unit]
-Description=DJOS: new release notification
+Description=DJOS: notice when updates are ready to install
+After=graphical-session.target
 
 [Service]
 Type=oneshot

@@ -1,7 +1,7 @@
 #!/usr/bin/bash
 # DJOS: cada monitor nuevo arranca en su frecuencia más alta (144 Hz, 165 Hz…) con su resolución de siempre; muchos
 # monitores rápidos se ven a 60 Hz si no se les pide. Se hace una sola vez por monitor: si después se cambia a mano
-# en Configuración > Pantalla, se respeta.
+# en Configuración > Pantalla, se respeta. Lo corre desktop-setup (djos-desktop.service) en cada inicio de sesión.
 set -u
 state=${XDG_STATE_HOME:-$HOME/.local/state}/djos
 seen=$state/displays

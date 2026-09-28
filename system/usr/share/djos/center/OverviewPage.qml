@@ -7,7 +7,7 @@ import org.kde.kirigami as Kirigami
 PageBase {
     id: page
     title: "Welcome to DJOS"
-    subtitle: (win.sys.name || "DJOS") + (win.sys.version ? "  ·  " + win.sys.version : "")
+    subtitle: (win.sys.name || "Fedora Linux") + (win.sys.version ? "  ·  DJOS Optimizer " + win.sys.version : "")
 
     property var audio: ({ cards: [], rate: 48000, quantum: 256 })
     property string profile: "performance"
@@ -19,6 +19,7 @@ PageBase {
         playing = djos.playing()
         win.refreshSystem()
     }
+    Timer { interval: 60000; running: true; repeat: true; onTriggered: win.refreshUpdates() }
     Component.onCompleted: refresh()
     Timer { interval: 5000; running: true; repeat: true; onTriggered: page.refresh() }
 
@@ -56,13 +57,20 @@ PageBase {
         Card {
             title: "Updates"
             StatusRow {
-                iconName: win.updates.system && win.updates.system.staged ? "update-high" : "update-none"
-                title: !win.updates.setup ? "Updates are not set up"
-                     : win.updates.system && win.updates.system.staged ? "Update ready" : "Up to date"
-                subtitle: !win.updates.setup ? "Connect this PC to your DJOS updates (only once)"
-                        : win.updates.system && win.updates.system.staged ? "Restart to apply DJOS " + win.updates.system.staged
-                        : "DJOS updates itself, and never during a set"
-                warning: !win.updates.setup
+                readonly property var u: win.updates
+                readonly property bool releaseReady: !!(u.release && u.release.ready && !u.release.prepared)
+                iconName: win.updatesReady || releaseReady ? "update-high" : "update-none"
+                title: !u.connected ? "Connect GitHub"
+                     : win.updatesReady ? (u.release && u.release.prepared ? "Fedora " + u.release.available + " ready to install"
+                                                                          : u.system.count + " updates ready to install")
+                     : win.updatesChecking ? "Checking for updates…"
+                     : releaseReady ? "Fedora " + u.release.available + " is available"
+                     : u.system && u.system.state === "error" ? "The last check failed"
+                     : u.time > 0 ? "Up to date" : "Not checked yet"
+                subtitle: !u.connected ? "Connect this PC to GitHub once to get Richie DJ and the DJOS updates"
+                        : win.updatesReady ? "Install them when you restart or shut down (from Updates)"
+                        : "DJOS prepares updates by itself, never during a set, and installs them only when you choose"
+                warning: !u.connected || (u.system && u.system.state === "error")
                 QQC2.Button { text: "Open"; flat: true; onClicked: win.go("updates") }
             }
         }
@@ -74,8 +82,8 @@ PageBase {
                 warning: win.sys.nvidiaCard === true && !win.sys.nvidia
                 subtitle: !win.sys.nvidiaCard ? "Using the open-source driver"
                         : win.sys.nvidia ? "NVIDIA driver " + win.sys.nvidia + " is running"
-                        : win.sys.mokPending ? "Restart, choose Enroll MOK → Continue → Yes, type universalblue and Reboot. Until then only one monitor works."
-                        : "The NVIDIA driver is not running. Restart once; if it keeps happening, check Updates."
+                        : win.sys.mokPending ? "Restart; on the blue screen choose Enroll MOK → Continue → Yes, type the password djosdjos and choose Reboot. Until then only one monitor works."
+                        : "The NVIDIA driver is not running. Restart once; if it keeps happening, run the DJOS Self-Test."
             }
         }
     }
@@ -86,7 +94,8 @@ PageBase {
         StatusRow {
             iconName: "richiedj"
             title: "Richie DJ"
-            subtitle: "Installed and kept up to date by DJOS (never while you play)"
+            subtitle: (win.sys.richiedjVersion ? "Version " + win.sys.richiedjVersion + ". " : "")
+                      + "Kept up to date by DJOS (never while you play)"
             QQC2.Button {
                 icon.name: "media-playback-start"
                 text: "Open Richie DJ"

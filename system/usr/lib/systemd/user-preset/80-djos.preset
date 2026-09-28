@@ -1,0 +1,3 @@
+# DJOS Optimizer: unidades de usuario propias con [Install] (aspecto del escritorio, avisos, timers), para todos
+# los usuarios (systemctl preset --global al instalar el paquete).
+enable djos-*

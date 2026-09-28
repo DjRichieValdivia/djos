@@ -1,0 +1,186 @@
+#!/usr/bin/bash
+# DJOS: driver de NVIDIA de RPM Fusion (akmod-nvidia + CUDA), con Secure Boot resuelto.
+#   nvidia-setup            (root) instala o repara: RPM Fusion, clave para firmar el driver (MOK), el driver, y
+#                           espera a que se compile para el núcleo con el que va a arrancar la PC
+#   nvidia-setup --status   estado en JSON (DJOS Center, avisos, Self-Test; no hace falta root):
+#                           {"gpu":bool,"driver":"<versión cargada>|","secure_boot":bool,"mok_pending":bool,"rpmfusion":bool}
+#   nvidia-setup --refresh  (root, al arrancar: djos-nvidia-check.service) deja al día /var/lib/djos/mok-pending
+# Con Secure Boot, el driver se firma con una clave propia de esta PC (kmodgenca) que la placa madre tiene que
+# aceptar una vez: al reiniciar aparece la pantalla azul de MokManager y se confirma con la contraseña djosdjos.
+set -u
+
+KEY=/etc/pki/akmods/certs/public_key.der
+STATE=/var/lib/djos
+MOK_PW=djosdjos   # contraseña de un solo uso para MokManager: es pública a propósito (se la mostramos al usuario)
+SB_VAR=/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c
+
+say() { echo "== $*"; }
+DNF=$(command -v dnf5 || command -v dnf || echo dnf)
+
+gpu_name() { lspci -d 10de: 2> /dev/null | grep -iE 'vga|3d controller|display' | head -1 | sed 's/^[^ ]* [^:]*: //'; }
+has_gpu() { [ -n "$(gpu_name)" ]; }
+secure_boot() {   # el último byte de la variable SecureBoot de la placa madre (1 = activado); legible sin root
+    [ -r "$SB_VAR" ] && [ "$(od -An -t u1 -j 4 -N 1 "$SB_VAR" 2> /dev/null | tr -d ' ')" = 1 ]
+}
+loaded_version() {   # versión del driver que está corriendo (vacío si no está cargado)
+    if [ -r /sys/module/nvidia/version ]; then cat /sys/module/nvidia/version; return; fi
+    [ -r /proc/driver/nvidia/version ] || return 0
+    # "... Kernel Module  580.95.05 ..." o "... Open Kernel Module for x86_64  580.95.05 ..."
+    awk 'NR == 1 { for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+\.[0-9]+(\.[0-9]+)?$/) { print $i; exit } }' /proc/driver/nvidia/version
+}
+rpmfusion() { rpm -q rpmfusion-free-release rpmfusion-nonfree-release > /dev/null 2>&1; }
+key_state() {   # enrolled | queued | missing | unknown (necesita root: la clave es solo de root y del grupo akmods)
+    [ -r "$KEY" ] || { [ -e "$KEY" ] || [ "$(id -u)" = 0 ] && echo missing || echo unknown; return; }
+    local out
+    out=$(mokutil --test-key "$KEY" 2>&1)
+    case "$out" in
+        *"already in the enrollment request"*) echo queued ;;
+        *"already enrolled"*|*"already in db"*|*"CA of"*"enrolled"*|*"Skip"*) echo enrolled ;;
+        *"is not enrolled"*) echo missing ;;
+        *) echo unknown ;;
+    esac
+}
+mok_pending() {   # hay que confirmar la clave en MokManager (o volver a pedirla) para que el driver cargue
+    secure_boot || return 1
+    [ -e /sys/module/nvidia ] && return 1            # con Secure Boot, si cargó es que la clave ya está
+    case "$(key_state)" in
+        queued|missing) [ -e "$KEY" ] ;;
+        enrolled) return 1 ;;
+        *) [ -e "$STATE/mok-pending" ] ;;          # sin root: lo que anotó el último chequeo
+    esac
+}
+bool() { if "$@"; then echo true; else echo false; fi; }
+
+status() {
+    printf '{"gpu":%s,"driver":"%s","secure_boot":%s,"mok_pending":%s,"rpmfusion":%s}\n' \
+        "$(bool has_gpu)" "$(loaded_version)" "$(bool secure_boot)" "$(bool mok_pending)" "$(bool rpmfusion)"
+}
+# queue_key: pide a la placa madre que acepte la clave en el próximo arranque (pantalla azul de MokManager).
+# La contraseña va como hash (--hash-file); si esta versión de mokutil no lo hace, se le escribe dos veces por la
+# entrada estándar (como pide al usarlo a mano). 0 = pedida (o ya aceptada), 1 = no se pudo
+queue_key() {
+    local hash rc=1
+    case "$(key_state)" in enrolled|queued) return 0 ;; esac
+    mokutil --timeout -1 > /dev/null 2>&1   # la pantalla azul espera al usuario (sin cuenta regresiva)
+    hash=$(mktemp) || return 1
+    if mokutil --generate-hash="$MOK_PW" > "$hash" 2> /dev/null && [ -s "$hash" ]; then
+        mokutil --import "$KEY" --hash-file "$hash" && rc=0
+    fi
+    rm -f "$hash"
+    [ "$rc" = 0 ] && return 0
+    printf '%s\n%s\n' "$MOK_PW" "$MOK_PW" | mokutil --import "$KEY" && return 0
+    return 1
+}
+refresh() {
+    [ "$(id -u)" = 0 ] || return 0
+    mkdir -p "$STATE"
+    # si la vez pasada se salteó la pantalla azul, el pedido se pierde: se vuelve a pedir (con el driver instalado)
+    if has_gpu && secure_boot && [ -e "$KEY" ] && [ "$(key_state)" = missing ] && rpm -q akmod-nvidia > /dev/null 2>&1; then
+        queue_key > /dev/null 2>&1
+    fi
+    if has_gpu && mok_pending; then touch "$STATE/mok-pending"; else rm -f "$STATE/mok-pending"; fi
+}
+
+case "${1:-}" in
+    --status) status; exit 0 ;;
+    --refresh) refresh; exit 0 ;;
+    "") ;;
+    *) echo "usage: nvidia-setup [--status|--refresh]" >&2; exit 2 ;;
+esac
+
+if ! has_gpu; then
+    echo "No NVIDIA graphics card found: nothing to do."
+    exit 0
+fi
+[ "$(id -u)" = 0 ] || { echo "Run it as administrator: sudo /usr/libexec/djos/nvidia-setup"; exit 1; }
+say "NVIDIA graphics card: $(gpu_name)"
+fail() { echo; echo "NVIDIA setup stopped: $*"; echo "Fix the problem above and run this again: sudo /usr/libexec/djos/nvidia-setup"; exit 1; }
+
+# --- 1. RPM Fusion (normalmente ya lo habilitó bootstrap/install.sh)
+if ! rpmfusion; then
+    say "Enabling RPM Fusion (free and nonfree)"
+    v=$(rpm -E %fedora)
+    "$DNF" -y install "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$v.noarch.rpm" \
+        "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$v.noarch.rpm" \
+        || fail "could not enable RPM Fusion (check the internet connection)"
+fi
+
+# --- 2. clave para firmar el driver, ANTES de instalarlo (así la primera compilación ya sale firmada)
+"$DNF" -y install akmods mokutil openssl > /dev/null || fail "could not install akmods"
+new_key=0
+if [ ! -e "$KEY" ]; then
+    say "Creating this PC's signing key for the driver"
+    kmodgenca -a > /dev/null || fail "kmodgenca could not create the key"
+    new_key=1
+fi
+if secure_boot; then
+    case "$(key_state)" in
+        enrolled) say "Secure Boot: the driver key is already accepted by this PC" ;;
+        queued) say "Secure Boot: the driver key is already waiting for your confirmation at the next restart" ;;
+        *)
+            say "Secure Boot: asking the PC to accept the driver key at the next restart"
+            queue_key || fail "mokutil could not queue the key"
+            ;;
+    esac
+fi
+
+# --- 3. el driver (y CUDA para Richie DJ)
+if ! rpm -q akmod-nvidia xorg-x11-drv-nvidia-cuda > /dev/null 2>&1; then
+    say "Installing the NVIDIA driver from RPM Fusion"
+    "$DNF" -y install akmod-nvidia xorg-x11-drv-nvidia-cuda || fail "could not install akmod-nvidia"
+fi
+
+# --- 4. compilarlo para el núcleo con el que va a arrancar (el más nuevo) y para el que está corriendo
+kdef=$(grubby --default-kernel 2> /dev/null | sed 's|.*/vmlinuz-||')
+[ -n "$kdef" ] || kdef=$(uname -r)
+kernels=$kdef
+[ "$(uname -r)" != "$kdef" ] && [ -d "/usr/src/kernels/$(uname -r)" ] && kernels="$kernels $(uname -r)"
+built=1
+for k in $kernels; do
+    if [ ! -d "/usr/src/kernels/$k" ]; then
+        "$DNF" -y install "kernel-devel-$k" > /dev/null 2>&1 \
+            || { echo "kernel-devel for $k is not available: skipped"; [ "$k" = "$kdef" ] && built=0; continue; }
+    fi
+    flags=()
+    # si la clave es nueva y ya había un driver compilado (sin firmar), se vuelve a compilar
+    [ "$new_key" = 1 ] && modinfo -k "$k" nvidia > /dev/null 2>&1 && flags=(--rebuild)
+    say "Building the NVIDIA driver for kernel $k"
+    echo "   This takes 3 to 10 minutes. Don't restart or turn off the PC until it finishes."
+    log=$(mktemp)
+    # akmods espera a la compilación que ya arrancó sola al instalar el paquete (comparten un candado)
+    akmods --kernels "$k" --akmod nvidia "${flags[@]}" > "$log" 2>&1 &
+    pid=$!
+    while kill -0 "$pid" 2> /dev/null; do printf '.'; sleep 10; done
+    wait "$pid"
+    echo
+    if v=$(modinfo -k "$k" -F version nvidia 2> /dev/null) && [ -n "$v" ]; then
+        echo "   Driver $v ready for $k."
+    else
+        echo "   The driver could not be built for $k. Last messages:"
+        tail -15 "$log" | sed 's/^/     /'
+        ls /var/cache/akmods/nvidia/*"$k"*failed.log 2> /dev/null | head -1 | sed 's/^/     full log: /'
+        [ "$k" = "$kdef" ] && built=0
+    fi
+    rm -f "$log"
+done
+
+refresh
+echo
+if [ "$built" = 0 ]; then
+    echo "The NVIDIA driver is NOT ready yet. The PC still starts (with basic graphics, one monitor)."
+    echo "Try again later: sudo /usr/libexec/djos/nvidia-setup"
+    exit 1
+fi
+if [ -e "$STATE/mok-pending" ]; then
+    cat << EOF
+Almost done. Secure Boot is on, so there is one step when the PC restarts:
+  1. A blue screen appears (MOK management). Press a key, then choose "Enroll MOK".
+  2. Choose "Continue", then "Yes".
+  3. Type the password:  $MOK_PW   (nothing shows while you type; the keyboard there is US English)
+  4. Choose "Reboot".
+Until then the PC uses basic graphics and only one monitor. (Turning Secure Boot off in the BIOS also works.)
+EOF
+else
+    echo "Done. Restart the PC to use the NVIDIA driver."
+fi
+exit 0

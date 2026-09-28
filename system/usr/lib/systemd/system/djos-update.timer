@@ -1,0 +1,10 @@
+[Unit]
+Description=DJOS: check for updates every 6 hours (the first time 15 minutes after power-on)
+
+[Timer]
+OnBootSec=15min
+OnUnitInactiveSec=6h
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

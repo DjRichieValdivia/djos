@@ -1,12 +1,49 @@
 #!/usr/bin/bash
-# DJOS: aviso con botón cuando hay una versión grande nueva (lo anota djos-update-check)
+# DJOS Optimizer: aviso con botones cuando hay algo listo para instalar (lo corre djos-update-notify.timer, del
+# usuario). Callado en todo lo demás: nunca mientras suena un set, una vez por día como mucho para lo mismo.
+#   - actualizaciones de Fedora bajadas: "Install & shut down" / "Later"
+#   - versión nueva de Fedora recomendable (4 semanas después de salir): "Open DJOS Center" / "Later"
 set -u
-f=/var/lib/djos/new-version
-[ -r "$f" ] || exit 0
-v=$(cat "$f")
-ans=$(notify-send -a DJOS -i system-software-update -w \
-    --action=upgrade="Upgrade now" --action=later="Later" \
-    "DJOS $v is available" \
-    "New Fedora release, already tested for 4 weeks. It downloads in a few minutes and is applied on restart. Do it when you have no gigs coming up.")
-[ "$ans" = upgrade ] && exec konsole -e /usr/libexec/djos/update major
+LIBEXEC=/usr/libexec/djos
+mem=${XDG_STATE_HOME:-$HOME/.local/state}/djos/update-notified
+mkdir -p "${mem%/*}"
+
+[ -x "$LIBEXEC/gig-guard" ] && ! "$LIBEXEC/gig-guard" && exit 0   # está sonando un set
+st=$("$LIBEXEC/update" status 2> /dev/null) || exit 0
+
+notify_once() {   # notify_once <clave> [período, formato de date]: 0 si en este período (día) todavía no se avisó
+    local key
+    key="$1 $(date "+${2:-%F}")"
+    grep -qxF "$key" "$mem" 2> /dev/null && return 1
+    echo "$key" >> "$mem"
+    tail -n 20 "$mem" > "$mem.tmp" && mv -f "$mem.tmp" "$mem"
+    return 0
+}
+
+sys=$(jq -r '.system.state' <<< "$st")
+count=$(jq -r '.system.count' <<< "$st")
+rel=$(jq -r 'if .release.ready and (.release.prepared | not) then .release.available else "" end' <<< "$st")
+
+if [ "$sys" = ready ] && notify_once "system"; then
+    if [ "$(jq -r '.release.prepared' <<< "$st")" = true ]; then
+        title="Fedora $(jq -r '.release.available' <<< "$st") is ready to install"
+        body="It installs the next time you shut down with DJOS (20-40 minutes, don't turn the PC off). Never during a set."
+    else
+        title="$count updates are ready"
+        body="They install when you shut down with DJOS (a few minutes). Nothing installs by itself, never during a set."
+    fi
+    ans=$(notify-send -a "DJOS" -i system-software-update -t 0 -w \
+        --action=shutdown="Install & shut down" --action=later="Later" "$title" "$body" 2> /dev/null)
+    if [ "$ans" = shutdown ]; then
+        out=$(pkexec "$LIBEXEC/update" install-shutdown 2>&1) || \
+            notify-send -a "DJOS" -i dialog-warning "Nothing was installed" "$(tail -n 1 <<< "$out")"
+    fi
+elif [ -n "$rel" ] && notify_once "release-$rel" %G-W%V; then   # la versión nueva: una vez por semana
+    ans=$(notify-send -a "DJOS" -i system-upgrade -t 0 -w \
+        --action=open="Open DJOS Center" --action=later="Later" \
+        "Fedora $rel is available" \
+        "The new Fedora release has been out for 4 weeks and works with this PC. Upgrade when you have no gigs coming up." \
+        2> /dev/null)
+    [ "$ans" = open ] && setsid -f "$LIBEXEC/center" --page updates > /dev/null 2>&1
+fi
 exit 0

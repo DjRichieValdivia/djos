@@ -1,0 +1,610 @@
+#!/usr/bin/bash
+# DJOS Optimizer: ajustes de la PC para DJ encima de Fedora KDE. Lo corre el paquete djos-optimizer:
+#   install     primera instalación (%post, $1 == 1): todo lo de abajo, y además apaga servicios que una PC de DJ
+#               no usa, enmascara kaccess y nvidia-powerd y le pone nombre a la PC
+#   upgrade     actualización del paquete (%post, $1 >= 2): vuelve a aplicar lo mismo sin pisar lo que el usuario
+#               cambió después (servicios que volvió a prender, otra pantalla de arranque, otro nombre)
+#   posttrans   al final de la transacción (%posttrans): rearma el initramfs si cambió la pantalla de arranque
+#   remove      desinstalación (%preun, $1 == 0): deja Fedora como estaba (el initramfs lo rearma después el %postun
+#               del paquete, cuando los archivos ya no están: /run/djos-optimizer-initramfs)
+#   cleanup     saca paquetes que una PC de DJ no necesita (bootstrap/install.sh lo pregunta antes); frena si
+#               sacarlos arrastrara algo esencial
+#   groups      (djos-users.service) usuarios nuevos a los grupos audio y pipewire
+#   --dry-run   muestra qué haría, sin tocar nada
+# Todo es idempotente y nunca devuelve error en install/upgrade/posttrans/remove (un %preun que falla deja el
+# paquete a medio sacar).
+set -u
+
+STATE=/var/lib/djos
+SHARE=/usr/share/djos
+KARGS="preempt=full threadirqs usbcore.autosuspend=-1"
+PPD=/etc/tuned/ppd.conf
+PPD_TPL=$SHARE/tuned/ppd.conf
+GRUB_CFG=/boot/grub2/grub.cfg                      # en Fedora 44 es el mismo para BIOS y UEFI (el de la ESP es un puente)
+WIN_GEN=/etc/grub.d/41_djos_windows
+THEME_DIR=/usr/share/plymouth/themes/djos
+PLY_CONF=/etc/plymouth/plymouthd.conf
+INITRD_REBUILD=/run/djos-optimizer-initramfs      # remove lo pide, el %postun del spec rearma el initramfs
+# solo en la primera instalación (si el usuario los vuelve a prender, se respeta):
+#   intel_lpmd  mueve trabajo a los núcleos de bajo consumo para ahorrar energía: pelea con la prioridad del audio
+#   nfs-client  carpetas de red NFS: una PC de DJ no las usa
+# CUPS no se toca: en Fedora 44 ya arranca solo cuando se imprime (cups.socket), así la impresora sigue andando.
+FIRST_DISABLE="intel_lpmd.service nfs-client.target"
+# enmascarados (también solo al instalar):
+#   nvidia-powerd  ahorro de energía de laptops con NVIDIA (en una de escritorio solo llena el registro de errores)
+#   plasma-kaccess (del usuario) teclas especiales de accesibilidad: evita que Shift apretado 5 veces en pleno set
+#                  active "teclas lentas/pegajosas"
+FIRST_MASK="nvidia-powerd.service"
+FIRST_MASK_USER="plasma-kaccess.service"
+
+DRY=0
+log() { echo "djos: $*"; }
+warn() { echo "djos: warning: $*" >&2; }
+run() {   # run <comando…>: lo corre, o en --dry-run lo muestra
+    if [ "$DRY" = 1 ]; then echo "  would run: $*"; return 0; fi
+    "$@"
+}
+runq() {   # runq <comando…>: igual, pero sin mostrar lo que el comando escribe
+    if [ "$DRY" = 1 ]; then echo "  would run: $*"; return 0; fi
+    "$@" > /dev/null 2>&1
+}
+live() { [ -d /run/systemd/system ]; }   # sistema arrancado de verdad (no un chroot ni un contenedor de armado)
+have() { command -v "$1" > /dev/null 2>&1; }
+mark() {   # mark <archivo de estado> [contenido]
+    [ "$DRY" = 1 ] && return 0
+    mkdir -p "$STATE" && chmod 0755 "$STATE"
+    printf '%s\n' "${2:-}" > "$STATE/$1"
+}
+list_add() {   # list_add <archivo de estado> <renglón>: agrega sin repetir
+    [ "$DRY" = 1 ] && return 0
+    mkdir -p "$STATE"
+    grep -qxF -- "$2" "$STATE/$1" 2> /dev/null || printf '%s\n' "$2" >> "$STATE/$1"
+}
+
+# palabras (argumentos del núcleo): agregar las que faltan / sacar las indicadas, sin repetir ni reordenar el resto
+words_add() {
+    local -a now add; local out=$1 w
+    read -ra add <<< "$2"
+    for w in "${add[@]}"; do
+        read -ra now <<< "$out"
+        case " ${now[*]} " in *" $w "*) ;; *) out="${out:+$out }$w" ;; esac
+    done
+    printf '%s' "$out"
+}
+words_del() {
+    local -a list; local out="" w
+    read -ra list <<< "$1"
+    for w in "${list[@]}"; do
+        case " $2 " in *" $w "*) ;; *) out="${out:+$out }$w" ;; esac
+    done
+    printf '%s' "$out"
+}
+
+# --- grupos: tiempo real para Richie DJ, DAWs y PipeWire (límites en /etc/security/limits.d/95-djos-audio.conf)
+human_users() { awk -F: '$3 >= 1000 && $3 < 60000 && $7 !~ /(nologin|false)$/ {print $1}' /etc/passwd; }
+do_groups() {
+    local u g
+    for u in $(human_users); do
+        for g in audio pipewire; do
+            getent group "$g" > /dev/null || continue
+            id -nG "$u" 2> /dev/null | tr ' ' '\n' | grep -qx "$g" && continue
+            run usermod -aG "$g" "$u" && log "$u added to group $g (takes effect at the next login)"
+        done
+    done
+}
+
+# --- nombre de la PC: "djos", solo si no tiene uno elegido. Se escribe en /etc/hostname y vale desde el próximo
+#     arranque (cambiarlo en caliente puede dejar sin permiso a las ventanas X de la sesión abierta)
+do_hostname() {
+    local cur=""
+    [ -f /etc/hostname ] && cur=$(tr -d '[:space:]' < /etc/hostname)
+    case "$cur" in
+        ""|fedora|localhost|localhost.localdomain|localhost-live) ;;
+        *) return 0 ;;
+    esac
+    [ "$DRY" = 1 ] && { echo "  would set the computer name to djos (was '${cur:-unset}')"; return 0; }
+    if [ ! -e "$STATE/hostname.orig" ] && [ ! -e "$STATE/hostname.absent" ]; then
+        mkdir -p "$STATE"
+        if [ -f /etc/hostname ]; then cp -a /etc/hostname "$STATE/hostname.orig"; else : > "$STATE/hostname.absent"; fi
+    fi
+    echo djos > /etc/hostname && chmod 0644 /etc/hostname
+    have restorecon && restorecon /etc/hostname 2> /dev/null
+    log "computer name set to djos (from the next restart)"
+}
+undo_hostname() {
+    [ "$(tr -d '[:space:]' 2> /dev/null < /etc/hostname)" = djos ] || return 0
+    if [ -f "$STATE/hostname.orig" ]; then
+        run cp -a "$STATE/hostname.orig" /etc/hostname
+    elif [ -e "$STATE/hostname.absent" ]; then
+        run rm -f /etc/hostname
+    else
+        return 0
+    fi
+    log "computer name restored"
+}
+
+# --- argumentos del núcleo. grubby (Fedora 44) los pone en todas las entradas de arranque y además en
+#     /etc/kernel/cmdline (de ahí los toma cada núcleo nuevo que se instala) y en GRUB_CMDLINE_LINUX de
+#     /etc/default/grub (de ahí los toma grub2-mkconfig), pero este último solo si ya tenía algo: se completa a mano
+default_args() { grubby --info=DEFAULT 2> /dev/null | sed -n 's/^args="\(.*\)"$/\1/p' | head -1; }
+boot_entries() { ls /boot/loader/entries/*.conf > /dev/null 2>&1; }
+
+sync_default_grub() {   # sync_default_grub add|del <args>
+    local f=/etc/default/grub cur new
+    [ -f "$f" ] || return 0
+    # shellcheck source=/dev/null
+    cur=$(. "$f" > /dev/null 2>&1; printf '%s' "${GRUB_CMDLINE_LINUX:-}")
+    case "$cur" in *\"*|*\\*) warn "GRUB_CMDLINE_LINUX in $f has quotes: left as is"; return 0 ;; esac
+    if [ "$1" = add ]; then new=$(words_add "$cur" "$2"); else new=$(words_del "$cur" "$2"); fi
+    [ "$new" = "$cur" ] && return 0
+    [ "$DRY" = 1 ] && { echo "  would set GRUB_CMDLINE_LINUX=\"$new\" in $f"; return 0; }
+    NEWLINE="GRUB_CMDLINE_LINUX=\"$new\"" awk 'BEGIN { l = ENVIRON["NEWLINE"] }
+        /^[[:space:]]*GRUB_CMDLINE_LINUX=/ { if (!d) print l; d = 1; next }
+        { print }
+        END { if (!d) print l }' "$f" > "$f.djos-new" && cat "$f.djos-new" > "$f"
+    rm -f "$f.djos-new"
+    # /etc/kernel/cmdline no puede quedar más viejo que /etc/default/grub (si no, el próximo núcleo rearma todo)
+    [ -f /etc/kernel/cmdline ] && touch /etc/kernel/cmdline
+}
+sync_kernel_cmdline() {   # sync_kernel_cmdline add|del <args>
+    local f=/etc/kernel/cmdline cur new
+    [ -f "$f" ] || return 0
+    cur=$(head -1 "$f")
+    if [ "$1" = add ]; then new=$(words_add "$cur" "$2"); else new=$(words_del "$cur" "$2"); fi
+    [ "$new" = "$cur" ] && return 0
+    [ "$DRY" = 1 ] && { echo "  would write '$new' to $f"; return 0; }
+    printf '%s\n' "$new" > "$f"
+}
+
+do_kargs() {
+    have grubby || { warn "grubby not found: kernel options not set"; return 0; }
+    boot_entries || { log "no boot entries here (not an installed system): kernel options skipped"; return 0; }
+    local def kc a missing="" need=0
+    def=" $(default_args) "
+    kc=" $(head -1 /etc/kernel/cmdline 2> /dev/null) "
+    for a in $KARGS; do
+        case "$def" in *" $a "*) ;; *) missing="${missing:+$missing }$a"; need=1 ;; esac
+        [ -f /etc/kernel/cmdline ] && case "$kc" in *" $a "*) ;; *) need=1 ;; esac
+    done
+    # anotado ANTES de tocar nada: al desinstalar se saca solo lo que puso DJOS (no lo que el usuario ya tenía)
+    for a in $missing; do list_add kargs-added "$a"; done
+    if [ "$need" = 1 ]; then
+        run grubby --update-kernel=ALL --args="$KARGS" \
+            && log "kernel options set: $KARGS (take effect at the next restart)"
+    fi
+    sync_default_grub add "$KARGS"
+    sync_kernel_cmdline add "$KARGS"
+}
+undo_kargs() {
+    local added
+    added=$(tr '\n' ' ' 2> /dev/null < "$STATE/kargs-added")   # 2> primero: sin aviso si no existe
+    [ -n "${added// /}" ] || return 0
+    if have grubby && boot_entries; then
+        run grubby --update-kernel=ALL --remove-args="$added" && log "kernel options removed: $added"
+    fi
+    sync_default_grub del "$added"
+    sync_kernel_cmdline del "$added"
+}
+
+# --- perfiles de energía: los de Plasma (tuned-ppd) pasan a los de DJOS. /etc/tuned/ppd.conf es de tuned-ppd:
+#     se guarda el original y se vuelve a poner al desinstalar
+ppd_is_ours() { grep -qE '^[[:space:]]*performance[[:space:]]*=[[:space:]]*djos[[:space:]]*$' "$PPD" 2> /dev/null; }
+# tal cual lo trae tuned-ppd (rpm -V no lo marca como cambiado)
+ppd_is_stock() { rpm -q tuned-ppd > /dev/null 2>&1 && ! rpm -V tuned-ppd 2> /dev/null | grep -q " $PPD\$"; }
+do_tuned() {   # do_tuned install|upgrade
+    [ -f "$PPD_TPL" ] || { warn "$PPD_TPL missing"; return 0; }
+    local changed=0
+    if [ -f "$PPD" ] && ! cmp -s "$PPD_TPL" "$PPD"; then
+        # al actualizar solo se pisa si es el nuestro (de otra versión) o el original de Fedora (p. ej. tuned-ppd
+        # se instaló después); si el usuario lo cambió a mano, se respeta
+        if ppd_is_ours || [ "$1" = install ] || ppd_is_stock; then
+            if ! ppd_is_ours && [ ! -e "$STATE/backup/ppd.conf" ]; then
+                run mkdir -p "$STATE/backup" && run cp -a "$PPD" "$STATE/backup/ppd.conf"
+            fi
+            run install -m 0644 "$PPD_TPL" "$PPD" && changed=1
+            have restorecon && run restorecon "$PPD" 2> /dev/null
+            log "power profiles mapped to the DJOS tuned profiles (Performance = djos, Balanced = djos-balanced)"
+        else
+            log "$PPD was changed by hand: left as is"
+        fi
+    elif [ ! -f "$PPD" ]; then
+        log "tuned-ppd is not installed: power profile mapping skipped"
+    fi
+    if live && [ "$changed" = 1 ]; then
+        run systemctl try-restart tuned-ppd.service 2> /dev/null
+    fi
+    # la primera vez arranca en Rendimiento (djos), como siempre fue DJOS; después manda el usuario
+    [ "$1" = install ] || return 0
+    have tuned-adm || { warn "tuned is not installed: DJOS profile not activated"; return 0; }
+    if live && systemctl -q is-active tuned.service; then
+        run tuned-adm profile djos && log "tuned profile: djos (Performance)"
+    elif [ "$DRY" = 1 ]; then
+        echo "  would write djos to /etc/tuned/active_profile (tuned not running)"
+    else
+        [ -f "$PPD" ] && echo performance > /etc/tuned/ppd_base_profile
+        echo djos > /etc/tuned/active_profile
+        echo manual > /etc/tuned/profile_mode
+        log "tuned profile djos set for the next start"
+    fi
+}
+undo_tuned() {
+    local was_djos=0 restored=0 cur
+    cur=$(tuned-adm active 2> /dev/null | sed -n 's/^Current active profile: //p')
+    [ -n "$cur" ] || cur=$(cat /etc/tuned/active_profile 2> /dev/null)
+    case "$cur" in djos*) was_djos=1 ;; esac
+    if ppd_is_ours; then
+        if [ -f "$PPD.rpmnew" ]; then   # tuned-ppd se actualizó mientras tanto: su versión nueva
+            run mv -f "$PPD.rpmnew" "$PPD"
+        elif [ -f "$STATE/backup/ppd.conf" ]; then
+            run cp -a "$STATE/backup/ppd.conf" "$PPD"
+        else
+            warn "no backup of $PPD: reinstall tuned-ppd to get the original back (sudo dnf reinstall tuned-ppd)"
+        fi
+        have restorecon && run restorecon "$PPD" 2> /dev/null
+        restored=1
+        log "power profiles back to Fedora's"
+    fi
+    # los perfiles djos desaparecen con el paquete: se vuelve a "Equilibrado", lo que trae Fedora
+    if [ "$was_djos" = 1 ] && [ -f /etc/tuned/ppd_base_profile ]; then
+        if [ "$DRY" = 1 ]; then echo "  would write balanced to /etc/tuned/ppd_base_profile"
+        else echo balanced > /etc/tuned/ppd_base_profile; fi
+    fi
+    if live; then
+        # tuned-ppd relee el archivo y el perfil guardado solo al arrancar
+        { [ "$restored" = 1 ] || [ "$was_djos" = 1 ]; } && run systemctl try-restart tuned-ppd.service 2> /dev/null
+        if [ "$was_djos" = 1 ] && ! systemctl -q is-active tuned-ppd.service && systemctl -q is-active tuned.service; then
+            run tuned-adm auto_profile
+        fi
+        [ "$was_djos" = 1 ] && log "power profile: Balanced (Fedora's default)"
+    elif [ "$was_djos" = 1 ]; then
+        if [ "$DRY" = 1 ]; then echo "  would set tuned back to balanced for the next start"
+        else echo balanced > /etc/tuned/active_profile; echo auto > /etc/tuned/profile_mode; fi
+    fi
+    return 0
+}
+
+# --- servicios (apagados y enmascarados solo en la primera instalación; se anotan para devolverlos)
+do_services_first() {
+    local u st
+    for u in $FIRST_DISABLE; do
+        st=$(systemctl is-enabled "$u" 2> /dev/null)
+        [ "$st" = enabled ] || continue
+        list_add disabled-units "$u"
+        run systemctl disable --quiet "$u" && log "turned off $u"
+        live && run systemctl stop "$u" 2> /dev/null
+    done
+    for u in $FIRST_MASK; do
+        [ "$(systemctl is-enabled "$u" 2> /dev/null)" = masked ] && continue
+        list_add masked-units "$u"
+        run systemctl mask --quiet "$u" 2> /dev/null && log "masked $u"
+    done
+    for u in $FIRST_MASK_USER; do
+        [ "$(systemctl --global is-enabled "$u" 2> /dev/null)" = masked ] && continue
+        list_add masked-user-units "$u"
+        run systemctl --global mask --quiet "$u" 2> /dev/null && log "masked $u (for every user)"
+    done
+}
+undo_services() {
+    local u
+    while read -r u; do
+        [ -n "$u" ] || continue
+        [ "$(systemctl is-enabled "$u" 2> /dev/null)" = masked ] || continue
+        run systemctl unmask --quiet "$u" 2> /dev/null && log "unmasked $u"
+        # y lo que Fedora (o RPM Fusion) trae por defecto para ese servicio, si está instalado
+        [ -f "/usr/lib/systemd/system/$u" ] && run systemctl preset --quiet "$u" 2> /dev/null
+    done < <(cat "$STATE/masked-units" 2> /dev/null)
+    while read -r u; do
+        [ -n "$u" ] || continue
+        [ "$(systemctl --global is-enabled "$u" 2> /dev/null)" = masked ] && run systemctl --global unmask --quiet "$u" 2> /dev/null
+    done < <(cat "$STATE/masked-user-units" 2> /dev/null)
+    # lo que DJOS apagó vuelve a lo que Fedora trae por defecto
+    while read -r u; do
+        [ -n "$u" ] || continue
+        run systemctl preset --quiet "$u" 2> /dev/null && log "restored $u to Fedora's default"
+    done < <(cat "$STATE/disabled-units" 2> /dev/null)
+}
+
+# --- pantalla de arranque djos (va dentro del initramfs: se rearma en posttrans, solo si hizo falta)
+theme_sum() {
+    find "$THEME_DIR" \( -type f -o -type l \) -print0 2> /dev/null | LC_ALL=C sort -z | xargs -0r cat 2> /dev/null \
+        | md5sum | cut -d' ' -f1
+}
+do_plymouth() {   # do_plymouth install|upgrade
+    have plymouth-set-default-theme || return 0
+    [ -f "$THEME_DIR/djos.plymouth" ] || { warn "plymouth theme djos not found"; return 0; }
+    local cur
+    cur=$(plymouth-set-default-theme 2> /dev/null)
+    if [ "$cur" != djos ]; then
+        # al actualizar se respeta si el usuario eligió otra (ya se había puesto una vez)
+        [ "$1" = upgrade ] && [ -e "$STATE/plymouth-set" ] && return 0
+        [ -e "$STATE/plymouth-prev" ] || mark plymouth-prev "$cur"
+        # /etc/plymouth/plymouthd.conf es de plymouth: copia para devolverlo tal cual
+        if [ -f "$PLY_CONF" ] && [ ! -e "$STATE/backup/plymouthd.conf" ]; then
+            run mkdir -p "$STATE/backup" && run cp -a "$PLY_CONF" "$STATE/backup/plymouthd.conf"
+        fi
+        run plymouth-set-default-theme djos || { warn "could not set the boot screen"; return 0; }
+        mark plymouth-set
+        mark initramfs-pending
+        log "boot screen: DJOS"
+    elif [ "$(cat "$STATE/plymouth-sum" 2> /dev/null)" != "$(theme_sum)" ] && [ -e "$STATE/plymouth-sum" ]; then
+        mark initramfs-pending   # la pantalla cambió en esta versión
+    fi
+    mark plymouth-sum "$(theme_sum)"
+}
+rebuild_initramfs() {
+    have dracut || return 0
+    ls /usr/lib/modules/*/vmlinuz > /dev/null 2>&1 || { log "no kernels here: initramfs not rebuilt"; return 0; }
+    log "updating the boot screen in every installed kernel (1-2 minutes)..."
+    runq dracut -f --regenerate-all || { warn "dracut failed (the boot screen may stay the old one)"; return 1; }
+    log "boot screen updated"
+}
+do_posttrans() {
+    [ -e "$STATE/initramfs-pending" ] || return 0
+    rebuild_initramfs && run rm -f "$STATE/initramfs-pending"
+    return 0
+}
+undo_plymouth() {
+    have plymouth-set-default-theme || return 0
+    [ "$(plymouth-set-default-theme 2> /dev/null)" = djos ] || return 0
+    local prev
+    prev=$(cat "$STATE/plymouth-prev" 2> /dev/null)
+    if [ -f "$STATE/backup/plymouthd.conf" ] && [ -f "$PLY_CONF.rpmnew" ]; then
+        run mv -f "$PLY_CONF.rpmnew" "$PLY_CONF"   # plymouth se actualizó mientras tanto: su versión nueva
+    elif [ -f "$STATE/backup/plymouthd.conf" ]; then
+        run cp -a "$STATE/backup/plymouthd.conf" "$PLY_CONF"
+    elif [ -n "$prev" ] && [ "$prev" != djos ] && [ -f "/usr/share/plymouth/themes/$prev/$prev.plymouth" ]; then
+        run plymouth-set-default-theme "$prev"
+    else
+        run plymouth-set-default-theme --reset   # la de Fedora (bgrt: el logo del fabricante)
+    fi
+    log "boot screen back to Fedora's"
+}
+# al desinstalar, el initramfs se rearma en %postun del paquete: en %preun todavía están los archivos de DJOS que van
+# adentro (tema, ntsync, opciones de audio) y quedarían ahí después de sacar el paquete
+request_initramfs() {
+    have dracut || return 0
+    ls /usr/lib/modules/*/vmlinuz > /dev/null 2>&1 || return 0
+    [ "$DRY" = 1 ] && { echo "  would rebuild the initramfs once the files are removed"; return 0; }
+    : > "$INITRD_REBUILD"
+}
+
+# --- Windows en el menú de arranque, si está en otro disco y GRUB todavía no lo tiene (os-prober suele ponerlo al
+#     instalar Fedora, pero no si el disco se conectó después o os-prober no lo vio)
+ESP_TYPE=c12a7328-f81f-11d2-ba4b-00a0c93ec93b
+windows_esp() {   # imprime la partición EFI que tiene el arranque de Windows
+    local dev pt mnt tmp found=""
+    for dev in $(lsblk -lnpo NAME,TYPE 2> /dev/null | awk '$2 == "part" {print $1}'); do
+        # el tipo de partición lo da udev; si no lo tiene, se lee de la tabla de particiones
+        pt=$(lsblk -dno PARTTYPE "$dev" 2> /dev/null)
+        [ -n "$pt" ] || pt=$(blkid -p -o value -s PART_ENTRY_TYPE "$dev" 2> /dev/null)
+        [ "${pt,,}" = "$ESP_TYPE" ] || continue
+        mnt=$(findmnt -nro TARGET --source "$dev" 2> /dev/null | head -1)
+        if [ -n "$mnt" ]; then
+            [ -f "$mnt/EFI/Microsoft/Boot/bootmgfw.efi" ] && { echo "$dev"; return 0; }
+            continue
+        fi
+        tmp=$(mktemp -d /run/djos-esp.XXXXXX) || continue
+        if mount -t vfat -o ro,nodev,nosuid,noexec "$dev" "$tmp" 2> /dev/null; then
+            [ -f "$tmp/EFI/Microsoft/Boot/bootmgfw.efi" ] && found=$dev
+            umount "$tmp"
+        fi
+        rmdir "$tmp"
+        [ -n "$found" ] && { echo "$found"; return 0; }
+    done
+    return 1
+}
+# grub2-mkconfig reescribe las opciones de todas las entradas con las de /etc/default/grub: solo se corre si no se
+# pierde nada
+grub_default_complete() {
+    local f=/etc/default/grub def a
+    [ -f "$f" ] || return 1
+    # shellcheck source=/dev/null
+    def=" $(. "$f" > /dev/null 2>&1; printf '%s %s' "${GRUB_CMDLINE_LINUX:-}" "${GRUB_CMDLINE_LINUX_DEFAULT:-}") "
+    for a in $(default_args); do
+        case "$a" in root=*|ro|rw|rootflags=*|BOOT_IMAGE=*|initrd=*|\$*) continue ;; esac
+        case "$def" in *" $a "*) ;; *) warn "'$a' is in the boot entries but not in $f"; return 1 ;; esac
+    done
+    return 0
+}
+mkconfig() {
+    grub_default_complete || { warn "GRUB menu not regenerated (see above)"; return 1; }
+    runq grub2-mkconfig -o "$GRUB_CFG" || { warn "grub2-mkconfig failed"; return 1; }
+}
+do_windows() {
+    [ -d /sys/firmware/efi ] || return 0
+    have grub2-mkconfig && [ -f "$GRUB_CFG" ] && [ -f "$WIN_GEN" ] || return 0
+    # grub2-mkconfig solo corre los generadores ejecutables (una actualización del paquete puede dejarlo en 0644)
+    if [ -e "$STATE/windows-boot" ]; then
+        [ -x "$WIN_GEN" ] || run chmod 0755 "$WIN_GEN"
+        return 0
+    fi
+    local esp
+    esp=$(windows_esp) || return 0
+    # ¿GRUB ya lo tiene? (os-prober)
+    if awk '/^### BEGIN .*41_djos_windows/ {s = 1} !s {print} /^### END .*41_djos_windows/ {s = 0}' "$GRUB_CFG" \
+        | grep -qi 'bootmgfw\.efi'; then
+        return 0
+    fi
+    log "Windows found on $esp: adding it to the boot menu"
+    [ -x "$WIN_GEN" ] || run chmod 0755 "$WIN_GEN"
+    mark windows-boot "$esp"
+    mkconfig || { [ "$DRY" = 1 ] || rm -f "$STATE/windows-boot"; }
+}
+undo_windows() {
+    [ -e "$STATE/windows-boot" ] || return 0
+    run rm -f "$STATE/windows-boot"
+    have grub2-mkconfig && [ -f "$GRUB_CFG" ] && mkconfig && log "Windows entry removed from the boot menu"
+    return 0
+}
+
+# --- limpieza de paquetes
+# Grupos (se sacan juntos). Probado en Fedora 44 KDE: nada de esto arrastra lo esencial. NO van (arrastran o rompen
+# otras cosas): akonadi-server (se lleva KMail, Kontact… y python3-pyside6, que usa DJOS Center), mariadb* (deja a
+# KMail sin base de datos; mariadb-connector-c se lleva LibreOffice), kunifiedpush (se lleva NeoChat),
+# plasma-keyboard (se lleva Plasma), kwrite (es el único editor de texto), orca (lector de pantalla).
+CLEAN_GROUPS=(
+    "kde-connect kdeconnectd krfb"                               # teléfono y escritorio remoto: demonios de red
+    "plasma-welcome plasma-welcome-fedora"
+    "pipewire-config-raop"                                       # parlantes AirPlay que aparecen solos como salida
+    "plasma-vault"
+    "hplip hplip-common hplip-libs hplip-gui"                    # drivers viejos de HP (las impresoras
+    "gutenprint gutenprint-cups gutenprint-libs"                 # actuales imprimen sin driver)
+    "drkonqi plasma-drkonqi"                                     # informes de fallos de KDE
+    "abrt abrt-desktop abrt-cli abrt-gui abrt-libs"              # informes de fallos de Fedora (procesa volcados)
+    "khelpcenter kdebugsettings kjournald kcharselect kfind kwalletmanager5"
+    "gamemode xwaylandvideobridge"
+)
+# solo si no hay un módem de celular (también se van NetworkManager-wwan y NetworkManager-bluetooth)
+CLEAN_MODEM="ModemManager"
+# solo en una PC de verdad (en una máquina virtual hacen falta)
+CLEAN_GUEST="open-vm-tools open-vm-tools-desktop virtualbox-guest-additions spice-vdagent spice-webdavd qemu-guest-agent hyperv-daemons hyperv-daemons-license hypervkvpd hypervvssd hypervfcopyd"
+# lo que nunca se puede ir (si sacar algo lo arrastra, ese algo no se saca)
+ESSENTIAL="djos-optimizer plasma-workspace plasma-desktop kwin plasma-systemsettings kscreen kscreenlocker plasma-nm
+plasma-pa powerdevil bluedevil xdg-desktop-portal-kde kde-gtk-config plasma-login-manager sddm kde-settings
+pipewire pipewire-pulseaudio wireplumber konsole dolphin kwrite plasma-discover plasma-discover-notifier
+plasma-discover-offline-updates plasma-discover-packagekit plasma-discover-flatpak flatpak firefox NetworkManager
+NetworkManager-wifi dnf5 PackageKit polkit sudo systemd kernel kernel-core kernel-modules linux-firmware
+grub2-efi-x64 shim-x64 grubby dracut plymouth tuned tuned-ppd python3-pyside6 kf6-kirigami mesa-dri-drivers
+akmods mokutil fedora-release-common"
+
+present() { rpm -q --qf '%{name}\n' "$@" 2> /dev/null | grep -v ' is not installed$'; }
+# would_remove <paquete…>: todo lo que dnf sacaría (pedidos, dependientes y dependencias que quedan sin uso).
+# Si dnf no puede armar la transacción (p. ej. rompería un paquete protegido como plasma-desktop): "(blocked)"
+would_remove() {
+    dnf5 -q remove --assumeno "$@" 2>&1 | awk '/^Removing/ {f = 1; next} /^Transaction Summary/ {f = 0; ok = 1}
+        f && /^ [^ ]/ {print $1} END { if (!ok) print "(blocked)" }'
+}
+essential_hits() {   # essential_hits <lista de paquetes>: los esenciales que aparecen ("(blocked)" también cuenta)
+    local p ess
+    ess=" $(tr '\n' ' ' <<< "$ESSENTIAL") (blocked) "
+    for p in $1; do
+        case "$ess" in *" $p "*) echo "$p"; continue ;; esac
+        case "$p" in akmod-nvidia|kmod-nvidia*|xorg-x11-drv-nvidia*|nvidia-*) echo "$p" ;; esac
+    done
+}
+# (las listas de paquetes se separan en palabras a propósito)
+# shellcheck disable=SC2086
+do_cleanup() {
+    have dnf5 || { echo "dnf5 not found."; return 1; }
+    local -a groups=() ok=() skipped=()
+    local g p pk list hits
+    for g in "${CLEAN_GROUPS[@]}"; do groups+=("$g"); done
+    groups+=("$(rpm -qa --qf '%{name}\n' 'ibus*' 'fcitx5*' 2> /dev/null | grep -vx 'ibus-libs' | sort -u | tr '\n' ' ')")
+    if have mmcli && mmcli -L 2> /dev/null | grep -q '/Modem/'; then
+        log "a mobile broadband modem is present: ModemManager stays"
+    else
+        groups+=("$CLEAN_MODEM")
+    fi
+    if [ "$(systemd-detect-virt 2> /dev/null)" = none ]; then groups+=("$CLEAN_GUEST")
+    else log "running in a virtual machine: its guest tools stay"; fi
+
+    # solo lo que está instalado
+    pk=""
+    for g in "${groups[@]}"; do
+        p=$(present $g | tr '\n' ' ')
+        [ -n "${p// /}" ] && ok+=("$p") && pk="$pk $p"
+    done
+    [ -n "${pk// /}" ] || { echo "Nothing to remove: this PC is already clean."; return 0; }
+
+    echo "Checking what would be removed..."
+    list=$(would_remove $pk | sort -u | tr '\n' ' ')
+    hits=$(essential_hits "$list" | tr '\n' ' ')
+    if [ -n "${hits// /}" ]; then
+        # algún grupo arrastra algo esencial (p. ej. en una versión nueva de Fedora): se prueba uno por uno y se
+        # deja afuera el que lo hace
+        echo "Removing all of it would take or break essential packages (${hits% }) - checking each group..."
+        pk=""
+        for g in "${ok[@]}"; do
+            if [ -n "$(essential_hits "$(would_remove $g | tr '\n' ' ')")" ]; then skipped+=("$g")
+            else pk="$pk $g"; fi
+        done
+        [ ${#skipped[@]} -gt 0 ] && echo "Kept (removing them would take essential parts of the system): ${skipped[*]}"
+        [ -n "${pk// /}" ] || { echo "Nothing can be removed safely."; return 0; }
+        list=$(would_remove $pk | sort -u | tr '\n' ' ')
+        hits=$(essential_hits "$list" | tr '\n' ' ')
+        if [ -n "${hits// /}" ]; then
+            echo "ABORTED: the removal would still take or break essential packages: ${hits% }"
+            return 1
+        fi
+    fi
+    [ -n "${list// /}" ] || { echo "Nothing to remove."; return 0; }
+    echo "Packages that will be removed ($(wc -w <<< "$list")):"
+    fold -s -w 100 <<< "$list" | sed 's/^/  /'
+    if [ "$DRY" = 1 ]; then echo "(dry run: nothing was removed)"; return 0; fi
+    dnf5 -y remove $pk || { echo "The removal failed (nothing essential was touched)."; return 1; }
+    echo "Done."
+}
+
+# --- NVIDIA: el aviso de la clave (mok-pending) al día
+do_nvidia_refresh() { [ -x /usr/libexec/djos/nvidia-setup ] && run /usr/libexec/djos/nvidia-setup --refresh; return 0; }
+
+do_remove_files() {
+    run rm -f /etc/udev/rules.d/90-djos-controller-audio.rules
+    live && run udevadm control --reload 2> /dev/null
+    run rm -rf /etc/djos
+    run rm -rf "$STATE"
+    # lo que desktop-setup anotó en cada usuario (aspecto ya aplicado, Richie DJ fijado, avisos): si DJOS se vuelve
+    # a instalar, arranca de cero (si no, el aspecto no se aplica de nuevo)
+    local _u uid home
+    while IFS=: read -r _u _ uid _ _ home _; do
+        [ "$uid" -ge 1000 ] 2> /dev/null && [ "$uid" -lt 60000 ] && [ -d "$home/.local/state/djos" ] || continue
+        run rm -rf "$home/.local/state/djos"
+    done < /etc/passwd
+    log "DJOS settings removed (Richie DJ stays in /opt/richiedj)"
+}
+
+# --- principal
+cmd=${1:-}; shift || true
+for a in "$@"; do
+    case "$a" in
+        --dry-run) DRY=1 ;;
+        *) echo "optimizer-setup: unknown option $a" >&2; exit 2 ;;
+    esac
+done
+if [ "$(id -u)" != 0 ] && [ "$DRY" = 0 ]; then
+    echo "optimizer-setup: run it as administrator (sudo)" >&2; exit 1
+fi
+[ "$DRY" = 1 ] && echo "(dry run: nothing is changed)"
+if [ "$DRY" = 0 ] && [ "$cmd" != cleanup ]; then mkdir -p "$STATE" && chmod 0755 "$STATE"; fi
+
+case "$cmd" in
+    install)
+        do_groups
+        do_hostname
+        do_kargs
+        do_tuned install
+        do_services_first
+        do_plymouth install
+        do_windows
+        do_nvidia_refresh
+        mark setup-version "$(cat "$SHARE/VERSION" 2> /dev/null)"   # rpm -q da las dos versiones durante la actualización
+        ;;
+    upgrade)
+        do_groups
+        do_kargs
+        do_tuned upgrade
+        do_plymouth upgrade
+        do_windows
+        do_nvidia_refresh
+        mark setup-version "$(cat "$SHARE/VERSION" 2> /dev/null)"   # rpm -q da las dos versiones durante la actualización
+        ;;
+    posttrans) do_posttrans ;;
+    remove)
+        # primero el perfil de energía (los perfiles djos se van con el paquete) y los argumentos del núcleo (antes
+        # de rearmar el menú de GRUB)
+        undo_tuned
+        undo_kargs
+        undo_windows
+        undo_services
+        undo_hostname
+        undo_plymouth
+        request_initramfs
+        do_remove_files
+        ;;
+    cleanup) do_cleanup; exit $? ;;
+    groups) do_groups ;;
+    *)
+        echo "usage: optimizer-setup install|upgrade|posttrans|remove|cleanup|groups [--dry-run]" >&2
+        exit 2 ;;
+esac
+exit 0

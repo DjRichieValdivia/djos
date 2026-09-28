@@ -1,3 +1,5 @@
+# DJOS: ventanas sin bordes gruesos, sin "sacudir el mouse para agrandarlo" y sin teclado en pantalla
+# (Fedora lo trae prendido en /usr/share/kde-settings/kde-profile/default/xdg/kwinrc; esto manda sobre eso)
 [org.kde.kdecoration2]
 BorderSize=None
 BorderSizeAuto=false
@@ -14,3 +16,4 @@ shakecursorEnabled=false
 
 [Wayland]
 InputMethod=
+VirtualKeyboardEnabled=false

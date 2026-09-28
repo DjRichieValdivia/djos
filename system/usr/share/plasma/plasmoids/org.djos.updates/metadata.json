@@ -2,12 +2,12 @@
     "KPlugin": {
         "Authors": [ { "Name": "DJOS" } ],
         "Category": "System Information",
-        "Description": "DJOS, Richie DJ and app updates",
+        "Description": "Fedora, Richie DJ and DJOS updates: install when you restart or shut down",
         "Icon": "system-software-update",
         "Id": "org.djos.updates",
         "License": "GPL-2.0-or-later",
         "Name": "DJOS Updates",
-        "Version": "1.0"
+        "Version": "2.0"
     },
     "KPackageStructure": "Plasma/Applet",
     "X-Plasma-API-Minimum-Version": "6.0"

@@ -1,0 +1,12 @@
+# DJOS: en cada arranque, ¿la clave del driver de NVIDIA ya quedó autorizada (Secure Boot)? Deja al día el aviso
+# del escritorio, de DJOS Center y del Self-Test (/var/lib/djos/mok-pending)
+[Unit]
+Description=DJOS: check the NVIDIA driver key (Secure Boot)
+ConditionPathExists=/etc/pki/akmods/certs/public_key.der
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/djos/nvidia-setup --refresh
+
+[Install]
+WantedBy=multi-user.target

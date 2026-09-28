@@ -1,0 +1,18 @@
+# rpmlint: avisos aceptados a propósito (build-rpm.sh lo usa; los errores que quedan frenan el armado)
+# repo privado: no hay URL pública ni fuente descargable
+addFilter("no-url-tag")
+addFilter("invalid-url Source0")
+# licencia propia, no está en la lista de Fedora
+addFilter("invalid-license LicenseRef-DJOS-Proprietary")
+# programas internos sin página de manual
+addFilter("no-manual-page-for-binary")
+# %post y %postun borran solo su propio archivo temporal en /run
+addFilter("dangerous-command-in-%post rm")
+addFilter("dangerous-command-in-%postun rm")
+# los accesos directos abren Konsole, que viene con Fedora KDE
+addFilter("desktopfile-without-binary .* konsole")
+# enlaces a archivos de paquetes que pedimos con Requires (Papirus-Dark, plymouth-theme-spinner)
+addFilter("dangling-(relative-)?symlink /usr/share/icons/Papirus-Dark-DJOS/")
+addFilter("dangling-(relative-)?symlink /usr/share/plymouth/themes/djos/")
+# /etc va entero como %config(noreplace) (ARCHITECTURE.md); el script de grub.d tiene que ser ejecutable
+addFilter("executable-marked-as-config-file /etc/grub.d/")

@@ -1,13 +1,14 @@
 #!/usr/bin/python3
-# DJOS Center: el panel de control de DJOS (audio, rendimiento, actualizaciones, programas, discos de música e
-# información del sistema). La interfaz está en /usr/share/djos/center (QML con Kirigami, el mismo aspecto que
-# Configuración de Plasma); acá está todo lo que lee o cambia el sistema.
+# DJOS Center: el panel de control del DJOS Optimizer (audio, rendimiento, actualizaciones, programas, discos de
+# música e información del sistema) sobre Fedora KDE. La interfaz está en /usr/share/djos/center (QML con Kirigami,
+# el mismo aspecto que Configuración de Plasma); acá está todo lo que lee o cambia el sistema.
 #   center [--page overview|audio|performance|updates|apps|disks|about]
 import json
 import os
 import re
 import subprocess
 import sys
+import time
 
 os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "org.kde.desktop")
 os.environ.setdefault("QT_QPA_PLATFORMTHEME", "kde")   # colores, letras e íconos de Plasma aunque se abra desde afuera
@@ -20,6 +21,8 @@ from PySide6.QtWidgets import QApplication
 SHARE = "/usr/share/djos/center"
 STATE = "/var/lib/djos"
 PW_USER_CONF = os.path.expanduser("~/.config/pipewire/pipewire.conf.d/60-djos-user.conf")
+PPD_PROFILE = ["org.freedesktop.UPower.PowerProfiles", "/org/freedesktop/UPower/PowerProfiles",
+               "org.freedesktop.UPower.PowerProfiles", "ActiveProfile"]
 
 
 def out(args, timeout=8):
@@ -37,6 +40,20 @@ def read(path, default=""):
         return default
 
 
+_cache = {}
+
+
+def cached(key, ttl, fn):
+    """Lo que tarda en calcularse (lspci, rpm, nvidia-setup) se guarda unos segundos: la portada refresca seguido."""
+    now = time.monotonic()
+    hit = _cache.get(key)
+    if hit and now - hit[0] < ttl:
+        return hit[1]
+    val = fn()
+    _cache[key] = (now, val)
+    return val
+
+
 def os_release():
     d = {}
     for line in read("/etc/os-release").splitlines():
@@ -44,6 +61,52 @@ def os_release():
             k, v = line.split("=", 1)
             d[k] = v.strip().strip('"')
     return d
+
+
+def rpm_version(pkg):
+    v = out(["rpm", "-q", "--qf", "%{VERSION}", pkg]).strip()
+    return "" if (not v or " " in v) else v   # "package … is not installed"
+
+
+def hardware():
+    cpu = ""
+    for line in read("/proc/cpuinfo").splitlines():
+        if line.startswith("model name"):
+            cpu = line.split(":", 1)[1].strip()
+            break
+    mem = 0
+    m = re.search(r"MemTotal:\s+(\d+)", read("/proc/meminfo"))
+    if m:
+        mem = round(int(m.group(1)) / 1024 / 1024)
+    gpu = ""
+    for line in out(["lspci"]).splitlines():
+        if re.search(r"VGA|3D controller|Display", line):
+            g = line.split(": ", 1)[-1]
+            if "NVIDIA" in g or not gpu:
+                gpu = re.sub(r"\s*\(rev [0-9a-f]+\)$", "", g)
+    plasma = out(["plasmashell", "--version"]).split()
+    return {"cpu": cpu, "memory": mem, "gpu": gpu, "plasma": plasma[-1] if plasma else ""}
+
+
+def nvidia_status():
+    """nvidia-setup --status (no hace falta root); si no está, lo que se ve desde /proc."""
+    try:
+        st = json.loads(out(["/usr/libexec/djos/nvidia-setup", "--status"], timeout=10) or "{}")
+    except ValueError:
+        st = {}
+    if "driver" not in st:
+        m = re.search(r"Kernel Module(?: for x86_64)?\s+([\d.]+)", read("/proc/driver/nvidia/version"))
+        st["driver"] = m.group(1) if m else ""
+    if "mok_pending" not in st:
+        st["mok_pending"] = os.path.exists(f"{STATE}/mok-pending")
+    return st
+
+
+def update_status():
+    try:
+        return json.loads(read(f"{STATE}/update-status.json", "{}") or "{}")
+    except ValueError:
+        return {}
 
 
 def sound_cards():
@@ -156,14 +219,17 @@ class Backend(QObject):
         return out(["/usr/libexec/djos/controller-audio", "status"], timeout=15).strip() or "[]"
 
     # --- rendimiento ----------------------------------------------------------------------------------------------
+    # Fedora 44 trae tuned-ppd (sin powerprofilesctl): el modo se lee y se cambia por D-Bus, la misma interfaz que
+    # usa Plasma (también la de power-profiles-daemon). tuned-ppd lo pasa a los perfiles djos (/etc/tuned/ppd.conf)
     @Slot(result=str)
     def powerProfile(self):
-        return out(["powerprofilesctl", "get"]).strip() or "performance"
+        m = re.match(r's "([^"]+)"', out(["busctl", "get-property", *PPD_PROFILE]).strip())
+        return m.group(1) if m else "performance"
 
     @Slot(str)
     def setPowerProfile(self, profile):
         if profile in ("performance", "balanced", "power-saver"):
-            out(["powerprofilesctl", "set", profile])
+            out(["busctl", "set-property", *PPD_PROFILE, "s", profile])
 
     @Slot(result=bool)
     def playing(self):
@@ -174,48 +240,35 @@ class Backend(QObject):
     @Slot(result=str)
     def system(self):
         rel = os_release()
-        cpu = ""
-        for line in read("/proc/cpuinfo").splitlines():
-            if line.startswith("model name"):
-                cpu = line.split(":", 1)[1].strip()
-                break
-        mem = 0
-        m = re.search(r"MemTotal:\s+(\d+)", read("/proc/meminfo"))
-        if m:
-            mem = round(int(m.group(1)) / 1024 / 1024)
-        nv = read("/proc/driver/nvidia/version")
-        m = re.search(r"Kernel Module(?: for x86_64)?\s+([\d.]+)", nv)
-        gpu = ""
-        for line in out(["lspci"]).splitlines():
-            if re.search(r"VGA|3D controller|Display", line):
-                g = line.split(": ", 1)[-1]
-                if "NVIDIA" in g or not gpu:
-                    gpu = re.sub(r"\s*\(rev [0-9a-f]+\)$", "", g)
-        st = {}
-        try:
-            st = json.loads(out(["rpm-ostree", "status", "--json"], timeout=15) or "{}")
-        except ValueError:
-            pass
-        booted = next((d for d in st.get("deployments", []) if d.get("booted")), {})
+        hw = cached("hw", 3600, hardware)
+        nv = cached("nvidia", 60, nvidia_status)
+        optimizer = cached("optimizer", 60, lambda: rpm_version("djos-optimizer"))
+        release = update_status().get("release") or {}
         return json.dumps({
-            "name": rel.get("PRETTY_NAME", "DJOS"),
-            "version": booted.get("version", ""),
-            "image": (booted.get("container-image-reference", "") or "").split(":")[-1],
+            "name": rel.get("PRETTY_NAME", "Fedora Linux"),   # p. ej. Fedora Linux 44 (KDE Plasma Desktop Edition)
+            "fedora": rel.get("VERSION_ID", ""),
+            "version": optimizer,                              # versión de DJOS = la del paquete djos-optimizer
+            "plasma": hw["plasma"],
             "kernel": os.uname().release,
-            "cpu": cpu, "memory": mem, "gpu": gpu,
-            "nvidia": m.group(1) if m else "",
-            "nvidiaCard": "NVIDIA" in gpu,
-            "mokPending": os.path.exists(f"{STATE}/mok-pending"),
-            "newVersion": read(f"{STATE}/new-version").strip(),
+            "cpu": hw["cpu"], "memory": hw["memory"], "gpu": hw["gpu"],
+            "nvidia": nv.get("driver", ""),
+            "nvidiaCard": "NVIDIA" in hw["gpu"] or nv.get("gpu") is True,
+            "mokPending": nv.get("mok_pending") is True,
+            "secureBoot": nv.get("secure_boot") is True,
+            "newVersion": release.get("available", "") if release.get("ready") else "",
             "richiedj": os.path.exists("/usr/local/share/applications/richiedj.desktop"),
+            "richiedjVersion": read("/opt/richiedj/.djos-version").strip(),
         })
 
     @Slot(result=str)
     def disks(self):
         try:
-            data = json.loads(out(["lsblk", "-J", "-b", "-o", "NAME,PATH,TYPE,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS,MODEL,TRAN"]))
+            data = json.loads(out(["lsblk", "-J", "-b", "-o", "NAME,PATH,TYPE,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS,MODEL,TRAN,PARTTYPE"]))
         except ValueError:
             return "[]"
+        # particiones de arranque y de sistema (la EFI, la reservada y la de recuperación de Windows) no son música
+        skip_types = {"c12a7328-f81f-11d2-ba4b-00a0c93ec93b", "e3c9e316-0b5c-4db8-817d-f92df00215ae",
+                      "de94bba4-06d1-4d40-a16a-bfd50179d6ac", "0xef", "0x27"}
         music = {}   # discos ya preparados con "Set Up Music Disk": UUID -> carpeta
         for line in read("/etc/fstab").splitlines():
             if "# djos-music" in line and line.startswith("UUID="):
@@ -229,7 +282,9 @@ class Backend(QObject):
                 tr = d.get("tran") or tran
                 if d.get("type") == "part" and d.get("fstype") in ("ntfs", "exfat", "vfat", "ext4", "xfs", "btrfs"):
                     mps = [m for m in (d.get("mountpoints") or []) if m]
-                    system = any(m in ("/", "/sysroot", "/boot", "/boot/efi", "/var", "/etc", "/usr") or m.startswith("/sysroot") for m in mps)
+                    # el disco de Fedora: "/" y "/home" (subvolúmenes btrfs de la misma partición), /boot y la EFI
+                    system = any(m in ("/", "/home", "/boot", "/boot/efi", "/efi", "/var", "/usr") for m in mps)
+                    system = system or (d.get("parttype") or "").lower() in skip_types
                     if not system and (d.get("label") or "").lower() not in ("boot", "efi", "recovery"):
                         res.append({"path": d.get("path"), "label": d.get("label") or "", "fs": d.get("fstype"),
                                     "size": int(d.get("size") or 0), "mounted": mps[0] if mps else "",
@@ -250,9 +305,11 @@ class Backend(QObject):
         flat = set(out(["flatpak", "list", "--columns=application"], timeout=20).split())
         for a in cat:
             if a.get("native"):
+                # paquetes de Fedora: los trae el optimizador (recomendados); si alguno falta, se instala con
+                # PackageKit (pkcon, "rpm") y no se ofrece sacarlo
                 a["installed"] = any(os.path.exists(os.path.join(d, a["native"])) for d in
                                      ("/usr/share/applications", "/usr/local/share/applications"))
-                a["included"] = True
+                a["included"] = a["installed"]
             else:
                 ids = a.get("flatpaks") or [a["flatpak"]]
                 a["installed"] = all(i in flat or any(f.startswith(i + "/") or f == i for f in flat) for i in ids)

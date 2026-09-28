@@ -3,4 +3,4 @@ Description=DJOS: add new users to the audio groups
 
 [Service]
 Type=oneshot
-ExecStart=/usr/libexec/djos/firstboot groups
+ExecStart=/usr/libexec/djos/optimizer-setup groups

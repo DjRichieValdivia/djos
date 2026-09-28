@@ -1,12 +1,14 @@
 [Unit]
 Description=DJOS: desktop look and displays
+# corre al iniciar sesión en Plasma, cuando la barra ya está (el script igual espera a Plasma); en segundo plano,
+# sin demorar el resto del inicio de sesión
 After=plasma-plasmashell.service
 PartOf=graphical-session.target
 
 [Service]
-Type=oneshot
+Type=exec
 ExecStart=/usr/libexec/djos/desktop-setup
-ExecStartPost=/usr/libexec/djos/display-setup
+Slice=background.slice
 
 [Install]
 WantedBy=graphical-session.target

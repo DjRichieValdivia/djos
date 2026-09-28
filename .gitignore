@@ -10,3 +10,5 @@ out/
 *.der
 .env
 auth.json
+# salida de packaging/build-rpm.sh
+dist/

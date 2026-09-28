@@ -14,9 +14,17 @@ Kirigami.ApplicationWindow {
 
     // estado compartido entre páginas (lo refrescan las páginas que lo usan)
     property var sys: ({})
-    property var updates: ({ system: { booted: "", staged: "" }, apps: [], flatpak: 0, checked: 0, setup: true })
+    // /usr/libexec/djos/update status (update-status.json)
+    property var updates: ({ time: 0, system: { state: "up-to-date", count: 0, error: "" }, apps: {},
+                             optimizer: { state: "", installed: "", available: "", error: "" },
+                             release: { available: "", ready: false, prepared: false, date: "" }, connected: true })
     property bool checkingUpdates: false
+    property bool installingUpdates: false
+    property string updateMessage: ""
     property string busyApp: ""
+    readonly property bool updatesReady: updates.system && updates.system.state === "ready"
+    readonly property bool updatesChecking: checkingUpdates || (updates.system && updates.system.state === "checking")
+    readonly property var updateApps: Object.keys(updates.apps || {}).map(k => Object.assign({ id: k }, updates.apps[k]))
 
     readonly property var pages: [
         { key: "overview", title: "Overview", icon: "djos", file: "OverviewPage.qml" },
@@ -33,7 +41,23 @@ Kirigami.ApplicationWindow {
             if (pages[i].key === key) { nav.currentIndex = i; return }
     }
     function refreshSystem() { sys = JSON.parse(djos.system()) }
-    function refreshUpdates() { djos.run("status", ["/usr/libexec/djos/updates-status"]) }
+    function refreshUpdates() { djos.run("status", ["/usr/libexec/djos/update", "status"]) }
+    // buscar e instalar van por polkit (sin contraseña para quien está frente a la PC)
+    function checkUpdates() {
+        checkingUpdates = true; updateMessage = ""
+        djos.run("check", ["pkexec", "/usr/libexec/djos/update", "check"])
+    }
+    function installUpdates(how) {   // "install-shutdown" o "install-reboot": la PC se reinicia
+        installingUpdates = true; updateMessage = ""
+        djos.run("install", ["pkexec", "/usr/libexec/djos/update", how])
+    }
+    function connectGitHub() { djos.launch(["konsole", "--hide-menubar", "-e", "/usr/libexec/djos/connect"]) }
+    function lastLine(text) { return (text || "").split("\n").filter(l => l.trim().length > 0).slice(-1)[0] || "" }
+    function failure(code, output) {
+        if (code === 3) return "A set is playing: nothing was done. Try again when you stop."
+        if (code === 126 || code === 127) return "Permission was not granted."
+        return lastLine(output) || "It didn't work."
+    }
 
     Connections {
         target: djos
@@ -42,9 +66,21 @@ Kirigami.ApplicationWindow {
                 try { win.updates = JSON.parse(output) } catch (e) { }
             } else if (tag === "check") {
                 win.checkingUpdates = false
+                if (code !== 0) win.updateMessage = win.failure(code, output)
                 win.refreshUpdates(); win.refreshSystem()
+            } else if (tag === "install") {
+                win.installingUpdates = false
+                if (code !== 0) win.updateMessage = win.failure(code, output)
+                win.refreshUpdates()
             }
         }
+    }
+    // mientras el timer de DJOS busca por su cuenta, el estado se sigue de cerca
+    Timer {
+        interval: 10000
+        running: win.updatesChecking && !win.checkingUpdates
+        repeat: true
+        onTriggered: win.refreshUpdates()
     }
 
     Component.onCompleted: { refreshSystem(); refreshUpdates(); go(startPage) }

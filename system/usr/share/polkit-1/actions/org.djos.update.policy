@@ -1,11 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
-<!-- DJOS: buscar y bajar actualizaciones (sistema y programas privados) sin pedir contraseña al usuario de la PC.
-     Solo este programa; aplica lo bajado recién al reiniciar. -->
+<!-- DJOS Optimizer: actualizaciones y conexión con GitHub.
+     Cada acción vale para un solo subcomando (org.freedesktop.policykit.exec.argv1): cualquier otro uso de pkexec con
+     estos programas cae en la acción general de pkexec (contraseña de administrador).
+     Buscar, instalar lo ya preparado y pasar a la Fedora nueva: sin contraseña para quien está sentado frente a la PC
+     (igual que Fedora con PackageKit para las actualizaciones offline). Guardar el acceso a GitHub escribe una
+     credencial del sistema: pide la contraseña (una vez por un rato). -->
 <policyconfig>
-  <action id="org.djos.update">
-    <description>Check for and download DJOS updates</description>
+  <vendor>DJOS</vendor>
+
+  <action id="org.djos.update.check">
+    <description>Check for and download updates</description>
     <message>DJOS needs permission to check for updates</message>
     <icon_name>system-software-update</icon_name>
     <defaults>
@@ -14,5 +20,58 @@
       <allow_active>yes</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/djos/update</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">check</annotate>
+  </action>
+
+  <action id="org.djos.update.install-shutdown">
+    <description>Install the prepared updates and shut down</description>
+    <message>DJOS needs permission to install the updates</message>
+    <icon_name>system-software-update</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/djos/update</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">install-shutdown</annotate>
+  </action>
+
+  <action id="org.djos.update.install-reboot">
+    <description>Install the prepared updates and restart</description>
+    <message>DJOS needs permission to install the updates</message>
+    <icon_name>system-software-update</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/djos/update</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">install-reboot</annotate>
+  </action>
+
+  <action id="org.djos.update.release-upgrade">
+    <description>Upgrade to the new Fedora release</description>
+    <message>DJOS needs permission to upgrade Fedora</message>
+    <icon_name>system-upgrade</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/djos/update</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">release-upgrade</annotate>
+  </action>
+
+  <action id="org.djos.connect.store">
+    <description>Save this PC's access to GitHub</description>
+    <message>DJOS needs your password to connect this PC to GitHub</message>
+    <icon_name>preferences-system-network</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/djos/connect</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">store</annotate>
   </action>
 </policyconfig>

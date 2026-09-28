@@ -1,0 +1,4 @@
+# DJOS Optimizer: se activan todas las unidades propias que tienen [Install] (rtirq, djos-users.path, el timer
+# de actualizaciones, el chequeo de NVIDIA…). Se aplica al instalar el paquete y cuando una actualización trae
+# una unidad nueva; las que no tienen [Install] (las que arrancan otras) no cambian.
+enable djos-*

@@ -1,0 +1,6 @@
+# DJOS Optimizer: Discover no instala nada por su cuenta. Sus "actualizaciones desatendidas" arrancan cuando el
+# teclado y el mouse quedan quietos un minuto, y una controladora MIDI no cuenta como actividad: podrían empezar en
+# medio de un set. DJOS las prepara solo cuando no suena nada y se instalan recién cuando el usuario elige
+# "Install & restart / shut down" (o "Update" en Discover). [$i] = fijo, el usuario no lo puede prender.
+[Global]
+UseUnattendedUpdates[$i]=false

@@ -2,17 +2,51 @@
 # DJOS: deja discos de música (NTFS de Windows, exFAT, ext4…) siempre disponibles en /mnt/music-<nombre>, en SOLO
 # LECTURA (DJOS nunca modifica la música ni Windows). Se montan solos al primer uso, sin demorar el arranque, y si
 # el disco no está conectado no pasa nada. Lo que se agrega va en /etc/fstab, marcado "djos-music".
+# Nunca se ofrece (ni se acepta) una partición del disco donde está Fedora.
 set -u
 pause() { echo; read -r -p "Press Enter to close this window." _; }
 
+# discos donde está el sistema: los de /, /boot, /boot/efi, /home y /var (subiendo por LUKS, LVM o RAID hasta
+# el disco físico). findmnt -v: sin el "[/subvolumen]" de btrfs
+system_disks() {
+    local m src
+    for m in / /boot /boot/efi /home /var; do
+        src=$(findmnt -nvo SOURCE "$m" 2> /dev/null | head -1)
+        case "$src" in /dev/*) ;; *) continue ;; esac
+        lsblk -nspo NAME,TYPE "$src" 2> /dev/null | awk '$2 == "disk" {print $1}'
+    done | sort -u
+}
+# candidatos: particiones con un sistema de archivos conocido, de 2 GB o más, fuera de los discos del sistema.
+# Salida: dispositivo, UUID, tipo, tamaño, disco, etiqueta (separados por \x1f: la etiqueta puede tener espacios)
+candidates() {
+    local sys
+    sys=$(system_disks | tr '\n' ' ')
+    lsblk -Jlpbo NAME,UUID,FSTYPE,SIZE,PKNAME,LABEL,TYPE 2> /dev/null | jq -r --arg sys " $sys " '
+        .blockdevices[]
+        | select(.type == "part" and .uuid != null and .pkname != null)
+        | select(.fstype // "" | test("^(ntfs|ntfs3|exfat|vfat|ext4|xfs|btrfs)$"))
+        | select((.size // 0) >= 2000000000)
+        | select(.pkname as $pk | $sys | contains(" " + $pk + " ") | not)
+        | [.name, .uuid, .fstype, (.size | tostring), .pkname, (.label // "")] | join("\u001f")'
+}
+human() { numfmt --to=iec --suffix=B "$1" 2> /dev/null || echo "$1 bytes"; }
+
 if [ "${1:-}" = --root ]; then
     shift
-    uidn=$1; gidn=$2; shift 2; added=()
+    uidn=${1:-}; gidn=${2:-}; shift 2 || exit 2
+    case "$uidn$gidn" in ''|*[!0-9]*) echo "Invalid user." >&2; exit 2 ;; esac
+    ok=$(candidates | awk -F '\x1f' '{print $2}')
+    added=()
     for spec in "$@"; do
         uuid=${spec%%|*}; name=${spec#*|}
-        fs=$(blkid -s TYPE -o value "/dev/disk/by-uuid/$uuid" 2>/dev/null)
+        # solo lo que la ventana pudo ofrecer: UUID de una partición candidata (nunca del disco del sistema) y un
+        # nombre simple
+        case "$uuid" in ''|*[!A-Za-z0-9-]*) echo "Skipped (invalid disk id)"; continue ;; esac
+        case "$name" in ''|*[!A-Za-z0-9_.-]*) echo "Skipped (invalid name)"; continue ;; esac
+        grep -qxF "$uuid" <<< "$ok" || { echo "Skipped: $uuid is not a music disk candidate"; continue; }
+        fs=$(blkid -s TYPE -o value "/dev/disk/by-uuid/$uuid" 2> /dev/null)
         dir="/mnt/music-$name"
-        grep -q "UUID=$uuid " /etc/fstab && { echo "Already set up: $dir"; continue; }
+        grep -q "^UUID=$uuid " /etc/fstab && { echo "Already set up: $dir"; continue; }
         case "$fs" in
             ntfs|ntfs3) type=ntfs3; opts="ro,uid=$uidn,gid=$gidn,umask=022,windows_names" ;;
             exfat) type=exfat; opts="ro,uid=$uidn,gid=$gidn,umask=022" ;;
@@ -37,18 +71,12 @@ echo "=================="
 echo
 echo "Your music disks will always be available (read-only: DJOS never changes your music or Windows)."
 echo
-# candidatos: particiones con sistema de archivos, que no son de DJOS ni particiones de sistema
-root=$(findmnt -no SOURCE /sysroot 2>/dev/null); rootdisk=$(lsblk -no PKNAME "$root" 2>/dev/null | head -1)
-mapfile -t rows < <(lsblk -lnpo NAME,UUID,FSTYPE,SIZE,LABEL,PKNAME \
-    | awk -v rd="$rootdisk" '$2 != "" && $3 ~ /^(ntfs|ntfs3|exfat|vfat|ext4|xfs|btrfs)$/ && $6 != "/dev/" rd && $6 != rd')
 args=()
-for r in "${rows[@]}"; do
-    set -- $r
-    dev=$1; uuid=$2; fs=$3; size=$4; label=${5:-}
-    [ "$fs" = vfat ] && [ "${size%M}" != "$size" ] && continue     # particiones de arranque chicas
+while IFS=$'\x1f' read -r dev uuid fs size _disk label; do
+    [ -n "$uuid" ] || continue
     name=$(printf '%s' "${label:-$uuid}" | tr -c 'A-Za-z0-9_.-' '_' | cut -c1-32)
-    args+=("$uuid|$name" "${label:-no name} — $size $fs ($dev)" off)
-done
+    args+=("$uuid|$name" "${label:-no name} — $(human "$size") $fs ($dev)" off)
+done < <(candidates)
 if [ ${#args[@]} -eq 0 ]; then echo "No other disks found."; pause; exit 0; fi
 sel=$(kdialog --title "DJOS" --separate-output --checklist "Choose your music disks:" "${args[@]}") || exit 0
 [ -n "$sel" ] || exit 0

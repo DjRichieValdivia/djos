@@ -1,27 +1,67 @@
 #!/usr/bin/bash
-# DJOS: deja el escritorio con el aspecto de DJOS (tema, colores, íconos, barra de tareas, fondo) una sola vez por
-# usuario y versión del diseño. Lo corre "notices" al iniciar sesión. Si después el usuario cambia algo, se respeta
-# (solo se vuelve a aplicar si sube la versión del diseño).
+# DJOS: aspecto del escritorio de cada usuario. Lo corre djos-desktop.service (de usuario) en cada inicio de sesión:
+#   1. una sola vez por usuario y versión del diseño (V): tema DJOS (colores, íconos, ventanas, pantalla de carga),
+#      barra de tareas y fondo, favoritos del menú, pantalla de bloqueo, perfil de Konsole, avisos en pantalla
+#      completa. Si después el usuario cambia algo, se respeta (solo se vuelve a aplicar si sube V).
+#   2. Richie DJ fijo en la barra cuando la app llega después (una vez; si el usuario lo saca, se respeta)
+#   3. display-setup: cada monitor nuevo a su frecuencia más alta
+# Para volver al escritorio de Fedora: plasma-apply-lookandfeel -a org.fedoraproject.fedora.desktop --resetLayout
 set -u
-V=1
+V=2
 state=${XDG_STATE_HOME:-$HOME/.local/state}/djos
+cfg=${XDG_CONFIG_HOME:-$HOME/.config}
+data=${XDG_DATA_HOME:-$HOME/.local/share}
+lnf=/usr/share/plasma/look-and-feel/org.djos.desktop
+layout=$lnf/contents/layouts/org.kde.plasma.desktop-layout.js
+rdj_desktop=/usr/local/share/applications/richiedj.desktop
 marker=$state/desktop-v$V
-[ -e "$marker" ] && exit 0
 mkdir -p "$state"
-for i in $(seq 1 60); do   # Plasma recién arrancando
-    busctl --user status org.kde.plasmashell > /dev/null 2>&1 && break
-    sleep 1
-done
-sleep 2
 
-# tema global: colores, íconos, estilo de ventanas y pantalla de carga (sin tocar la barra: eso va aparte)
-plasma-apply-lookandfeel -a org.djos.desktop > /dev/null 2>&1
-plasma-apply-colorscheme DJOS > /dev/null 2>&1
+# favoritos del menú (IDs de Fedora 44; Richie DJ aunque todavía no esté: aparece cuando se instala)
+FAVORITES="richiedj.desktop org.djos.center.desktop org.mozilla.firefox.desktop org.kde.dolphin.desktop
+    org.kde.konsole.desktop systemsettings.desktop org.kde.discover.desktop"
 
-# favoritos del menú: los de DJOS en vez de los de fábrica (Plasma los guarda en la base de datos de actividades;
-# el menú nuevo que arma panel.js los lee de ahí)
-FAVORITES="applications:richiedj.desktop applications:org.djos.center.desktop applications:org.mozilla.firefox.desktop applications:org.kde.dolphin.desktop applications:org.kde.konsole.desktop applications:systemsettings.desktop"
-python3 - "$HOME/.local/share/kactivitymanagerd/resources/database" $FAVORITES <<'PY' 2> /dev/null
+# corre un script de la barra adentro de Plasma (el mismo mecanismo que usa Configuración)
+plasma_script() {
+    local script
+    script=$(cat "$1") || return 1
+    busctl --user call org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell evaluateScript s "$script" > /dev/null 2>&1 \
+        || gdbus call --session --dest org.kde.plasmashell --object-path /PlasmaShell \
+               --method org.kde.PlasmaShell.evaluateScript "$script" > /dev/null 2>&1
+}
+
+plasma_ready() {
+    local _
+    for _ in $(seq 1 90); do   # Plasma recién arrancando
+        busctl --user status org.kde.plasmashell > /dev/null 2>&1 && { sleep 2; return 0; }
+        sleep 1
+    done
+    return 1
+}
+
+# archivo de autoarranque apagado solo para este usuario (el del sistema es de otro paquete y no se toca); si el
+# usuario ya tiene el suyo, se respeta
+autostart_off() {
+    local f=$cfg/autostart/$1
+    [ -e "/etc/xdg/autostart/$1" ] || [ "${2:-}" = always ] || return 0
+    [ -e "$f" ] && return 0
+    mkdir -p "$cfg/autostart" && printf '[Desktop Entry]\nType=Application\nName=%s\nHidden=true\n' "${1%.desktop}" > "$f"
+}
+
+apply_look() {
+    # tema global: colores, íconos, estilo de ventanas y pantalla de carga (la barra va aparte)
+    plasma-apply-lookandfeel -a org.djos.desktop > /dev/null 2>&1
+    plasma-apply-colorscheme DJOS > /dev/null 2>&1
+    if [ -x /usr/libexec/plasma-changeicons ]; then
+        /usr/libexec/plasma-changeicons Papirus-Dark-DJOS > /dev/null 2>&1
+    else
+        kwriteconfig6 --file kdeglobals --group Icons --key Theme Papirus-Dark-DJOS
+    fi
+
+    # favoritos del menú: los de DJOS en vez de los de fábrica (Plasma los guarda en la base de datos de
+    # actividades; el menú nuevo que arma la barra los lee de ahí)
+    # shellcheck disable=SC2086 # una palabra por favorito
+    python3 - "$data/kactivitymanagerd/resources/database" $FAVORITES <<'PY' 2> /dev/null
 import os, sqlite3, sys
 db, favs = sys.argv[1], sys.argv[2:]
 if os.path.exists(db):
@@ -29,31 +69,66 @@ if os.path.exists(db):
     agent = "org.kde.plasma.favorites.applications"
     c.execute("DELETE FROM ResourceLink WHERE initiatingAgent = ?", (agent,))
     c.executemany("INSERT OR IGNORE INTO ResourceLink (usedActivity, initiatingAgent, targettedResource) VALUES (':global', ?, ?)",
-                  [(agent, f) for f in favs])
+                  [(agent, "applications:" + f) for f in favs])
     c.commit()
 PY
 
-# barra de tareas y fondo
-script=$(cat /usr/share/djos/panel.js)
-busctl --user call org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell evaluateScript s "$script" > /dev/null 2>&1 \
-    || gdbus call --session --dest org.kde.plasmashell --object-path /PlasmaShell \
-           --method org.kde.PlasmaShell.evaluateScript "$script" > /dev/null 2>&1 \
-    || exit 1
-# la barra nueva ya trae Richie DJ y el ícono de actualizaciones
-[ -e /usr/local/share/applications/richiedj.desktop ] && touch "$state/richiedj-pinned"
-touch "$state/updates-widget-added"
-# orden de los favoritos en el menú nuevo (se ve desde el próximo inicio de sesión; Plasma guarda la barra nueva
-# en su archivo unos segundos después)
-sleep 8
-kick=$(awk -F'[][]' '/^\[Containments\]\[[0-9]+\]\[Applets\]\[[0-9]+\]$/ { id = $8 } /^plugin=org.kde.plasma.kickoff$/ && id { last = id } END { print last }' \
-       "$HOME/.config/plasma-org.kde.plasma.desktop-appletsrc" 2> /dev/null)
-if [ -n "$kick" ]; then
-    order=$(echo $FAVORITES | sed 's/applications://g; s/ /,/g')
-    kwriteconfig6 --file kactivitymanagerd-statsrc --group "Favorites-org.kde.plasma.kickoff.favorites.instance-$kick-global" \
-        --key ordering "$order"
+    # barra de tareas y fondo (el diseño del tema DJOS)
+    plasma_script "$layout" || return 1
+    # la barra nueva ya trae el ícono de actualizaciones, y Richie DJ si ya estaba instalado
+    [ -e "$rdj_desktop" ] && touch "$state/richiedj-pinned"
+    touch "$state/updates-widget-added"
+
+    # orden de los favoritos en el menú nuevo (se ve desde el próximo inicio de sesión; Plasma guarda la barra nueva
+    # en su archivo unos segundos después)
+    sleep 8
+    local kick order
+    kick=$(awk -F'[][]' '/^\[Containments\]\[[0-9]+\]\[Applets\]\[[0-9]+\]$/ { id = $8 } /^plugin=org.kde.plasma.kickoff$/ && id { last = id } END { print last }' \
+           "$cfg/plasma-org.kde.plasma.desktop-appletsrc" 2> /dev/null)
+    if [ -n "$kick" ]; then
+        # shellcheck disable=SC2086
+        order=$(printf '%s\n' $FAVORITES | paste -sd, -)
+        kwriteconfig6 --file kactivitymanagerd-statsrc --group "Favorites-org.kde.plasma.kickoff.favorites.instance-$kick-global" \
+            --key ordering "$order"
+    fi
+
+    # pantalla de bloqueo con el fondo de DJOS
+    kwriteconfig6 --file kscreenlockerrc --group Greeter --key WallpaperPlugin org.kde.image
+    kwriteconfig6 --file kscreenlockerrc --group Greeter --group Wallpaper --group org.kde.image --group General \
+        --key Image "file:///usr/share/wallpapers/DJOS-Lock/"
+    kwriteconfig6 --file kscreenlockerrc --group Greeter --group Wallpaper --group org.kde.image --group General \
+        --key PreviewImage "file:///usr/share/wallpapers/DJOS-Lock/"
+
+    # Konsole con el perfil DJOS (el konsolerc del sistema es del paquete de Konsole: va por usuario)
+    kwriteconfig6 --file konsolerc --group "Desktop Entry" --key DefaultProfile DJOS.profile
+
+    # sin avisos encima de Richie DJ en pantalla completa (el plasmanotifyrc del sistema es de Plasma)
+    kwriteconfig6 --file plasmanotifyrc --group DoNotDisturb --key WhenFullscreen --type bool true
+
+    # sin ubicación automática ni la carga de la configuración de NVIDIA para X11 (en Wayland no hace nada)
+    autostart_off geoclue-demo-agent.desktop
+    autostart_off nvidia-settings-user.desktop always
+    return 0
+}
+
+# Richie DJ llegó después del escritorio: a la barra (y al menú, por si Plasma lo sacó de los favoritos)
+pin_richiedj() {
+    plasma_script /usr/share/djos/pin-richiedj.js || return 1
+    busctl --user call org.kde.ActivityManager /ActivityManager/Resources/Linking \
+        org.kde.ActivityManager.ResourcesLinking LinkResourceToActivity sss \
+        org.kde.plasma.favorites.applications applications:richiedj.desktop :global > /dev/null 2>&1
+    touch "$state/richiedj-pinned"
+}
+
+if [ ! -e "$marker" ] || { [ ! -e "$state/richiedj-pinned" ] && [ -e "$rdj_desktop" ]; }; then
+    if plasma_ready; then
+        if [ ! -e "$marker" ]; then
+            apply_look && touch "$marker"
+        fi
+        if [ -e "$marker" ] && [ ! -e "$state/richiedj-pinned" ] && [ -e "$rdj_desktop" ]; then
+            pin_richiedj
+        fi
+    fi
 fi
 
-# pantalla de bloqueo con el fondo de DJOS
-kwriteconfig6 --file kscreenlockerrc --group Greeter --group Wallpaper --group org.kde.image --group General \
-    --key Image "file:///usr/share/wallpapers/DJOS-Lock/"
-touch "$marker"
+exec /usr/libexec/djos/display-setup

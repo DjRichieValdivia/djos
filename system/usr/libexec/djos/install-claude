@@ -8,7 +8,7 @@ echo "Install Claude Code"
 echo "==================="
 echo
 printf "Checking the internet connection"
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
     getent hosts claude.ai > /dev/null 2>&1 && break
     printf "."; sleep 2
 done

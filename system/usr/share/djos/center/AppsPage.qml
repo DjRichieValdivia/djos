@@ -7,7 +7,7 @@ import org.kde.kirigami as Kirigami
 PageBase {
     id: page
     title: "Apps & Plugins"
-    subtitle: "Hand-picked tools for DJs and producers. Included apps are ready to use; the rest install with one click and update by themselves."
+    subtitle: "Hand-picked tools for DJs and producers. They install with one click and update by themselves with the rest of the PC."
 
     property var apps: []
     property string message: ""
@@ -33,7 +33,9 @@ PageBase {
     function install(a) {
         win.busyApp = a.name
         page.message = ""
-        if (a.pack)
+        if (a.rpm)   // paquete de Fedora: PackageKit (sin contraseña para los administradores)
+            djos.run("app:" + a.name, ["pkcon", "install", "-y", "--noninteractive", a.rpm])
+        else if (a.pack)
             djos.run("app:" + a.name, ["/usr/libexec/djos/flatpak-audio", "plugins"].concat(a.flatpaks))
         else
             djos.run("app:" + a.name, ["/usr/libexec/djos/flatpak-audio", "install", a.flatpak])
@@ -114,6 +116,6 @@ PageBase {
         Layout.fillWidth: true
         wrapMode: Text.WordWrap
         opacity: 0.6
-        text: "Looking for something else? Discover has thousands of apps, and in a terminal “paru -S name” installs anything from Arch Linux."
+        text: "Looking for something else? Discover has thousands of apps, from Fedora and from Flathub."
     }
 }

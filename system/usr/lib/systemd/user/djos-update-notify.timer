@@ -1,9 +1,9 @@
 [Unit]
-Description=DJOS: new release notification (at login and daily)
+Description=DJOS: notice when updates are ready to install (20 minutes after login, then every hour; quiet otherwise)
 
 [Timer]
-OnStartupSec=15min
-OnUnitActiveSec=1d
+OnStartupSec=20min
+OnUnitActiveSec=1h
 
 [Install]
 WantedBy=timers.target

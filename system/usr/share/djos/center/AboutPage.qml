@@ -1,4 +1,4 @@
-// Acerca de: versión y equipo
+// Acerca de: versiones (DJOS Optimizer, Fedora, Plasma, núcleo, drivers, Richie DJ) y equipo
 import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
@@ -8,11 +8,18 @@ PageBase {
     id: page
     title: "About"
 
-    readonly property string info: "DJOS: " + (win.sys.version || "") + "\n"
-        + "Kernel: " + (win.sys.kernel || "") + "\n"
-        + "Processor: " + (win.sys.cpu || "") + "\n"
-        + "Memory: " + (win.sys.memory || 0) + " GB\n"
-        + "Graphics: " + (win.sys.gpu || "") + (win.sys.nvidia ? " (NVIDIA " + win.sys.nvidia + ")" : "")
+    readonly property var rows: [
+        ["DJOS Optimizer", win.sys.version || "not installed"],
+        ["System", win.sys.name || ""],
+        ["KDE Plasma", win.sys.plasma || ""],
+        ["Kernel", win.sys.kernel || ""],
+        ["Processor", win.sys.cpu || ""],
+        ["Memory", (win.sys.memory || 0) + " GB"],
+        ["Graphics", (win.sys.gpu || "") + (win.sys.nvidia ? "  ·  NVIDIA driver " + win.sys.nvidia : "")],
+        ["Secure Boot", win.sys.secureBoot ? "On" : "Off"],
+        ["Richie DJ", win.sys.richiedj ? (win.sys.richiedjVersion || "installed") : "not installed"]
+    ]
+    readonly property string info: rows.map(r => r[0] + ": " + r[1]).join("\n")
 
     Image {
         source: "file:///usr/share/djos/logo.png"
@@ -22,7 +29,7 @@ PageBase {
         Layout.topMargin: Kirigami.Units.largeSpacing
     }
     QQC2.Label {
-        text: "The operating system for DJs and music producers. Built on Fedora and KDE Plasma, tuned for real-time audio."
+        text: "DJOS turns Fedora KDE into a PC for DJs and music producers: real-time audio tuning, the DJOS look, DJOS Center, the Self-Test and Richie DJ. Fedora keeps the system itself up to date."
         wrapMode: Text.WordWrap
         opacity: 0.75
         Layout.fillWidth: true
@@ -34,16 +41,30 @@ PageBase {
             columns: 2
             columnSpacing: Kirigami.Units.largeSpacing * 2
             rowSpacing: Kirigami.Units.smallSpacing
-            QQC2.Label { text: "DJOS"; opacity: 0.6 }
-            QQC2.Label { text: (win.sys.name || "") + "  (" + (win.sys.version || "") + ")" }
-            QQC2.Label { text: "Kernel"; opacity: 0.6 }
-            QQC2.Label { text: win.sys.kernel || "" }
-            QQC2.Label { text: "Processor"; opacity: 0.6 }
-            QQC2.Label { text: win.sys.cpu || "" }
-            QQC2.Label { text: "Memory"; opacity: 0.6 }
-            QQC2.Label { text: (win.sys.memory || 0) + " GB" }
-            QQC2.Label { text: "Graphics"; opacity: 0.6 }
-            QQC2.Label { text: (win.sys.gpu || "") + (win.sys.nvidia ? "  ·  driver " + win.sys.nvidia : "") }
+            Repeater {
+                model: page.rows
+                delegate: QQC2.Label {
+                    required property var modelData
+                    required property int index
+                    // cada renglón son dos celdas: nombre (gris) y valor
+                    text: modelData[0]
+                    opacity: 0.6
+                    Layout.row: index
+                    Layout.column: 0
+                }
+            }
+            Repeater {
+                model: page.rows
+                delegate: QQC2.Label {
+                    required property var modelData
+                    required property int index
+                    text: modelData[1]
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                    Layout.row: index
+                    Layout.column: 1
+                }
+            }
         }
         RowLayout {
             QQC2.Button {
@@ -58,6 +79,16 @@ PageBase {
 
     Card {
         title: "Help"
+        StatusRow {
+            iconName: "run-build"
+            title: "DJOS Self-Test"
+            subtitle: "Checks real-time audio, graphics, sound cards and DJ controllers, and saves a report you can send."
+            QQC2.Button {
+                icon.name: "run-build"
+                text: "Run"
+                onClicked: djos.launch(["konsole", "--hide-menubar", "-e", "/usr/libexec/djos/selftest"])
+            }
+        }
         StatusRow {
             iconName: "claude"
             title: "Claude Code"

@@ -1,85 +1,181 @@
 #!/usr/bin/bash
-# DJOS: actualiza los programas privados que llegan como imagen de GitHub (p. ej. Richie DJ).
-# Se listan en /etc/djos/apps.conf (propio de cada PC, no está en la imagen), una línea por programa:
-#     <nombre> <imagen> <carpeta> <proceso>
-#     richiedj ghcr.io/usuario/richiedj:latest /var/opt/richiedj Richie DJ
+# DJOS Optimizer: instala y actualiza Richie DJ (y otros programas privados que llegan como imagen de GitHub).
+#   app-update               busca una versión nueva, la baja y la cambia si el programa está cerrado (root)
+#   app-update --progress    lo mismo mostrando el avance de la descarga (primera instalación, en una terminal)
+#   app-update --swap-only   solo cambia a una versión ya bajada, si el programa está cerrado (sin internet)
+# Qué programas: /etc/djos/apps.conf si existe, una línea por programa:
+#     <id> <imagen> <carpeta> <proceso>        p. ej.  richiedj ghcr.io/<dueño>/richiedj:latest /opt/richiedj Richie DJ
+# si no, Richie DJ desde DJOS_APP_IMAGE (source.conf) en /opt/richiedj. Pruebas: DJOS_APP_SOURCE=oci-archive:/x.tar
 # La imagen trae el programa en /app. Solo se baja lo que cambió (capas); si el programa está abierto o sonando no
-# se toca y se reintenta en la próxima vuelta (la versión ya bajada queda lista). El cambio es atómico: carpeta
-# nueva y renombrar.
+# se toca y queda listo para la próxima vuelta. El cambio es atómico: carpeta nueva y renombrar. Si todavía no está
+# instalado, se instala. El estado de cada uno va a /var/lib/djos/update-status.json (apps.<id>).
 set -u
+mode=${1:-}
+LIBEXEC=/usr/libexec/djos
+STATE=${DJOS_STATE_DIR:-/var/lib/djos}
+SF=$STATE/update-status.json
+AUTH=${DJOS_AUTHFILE:-/etc/djos/registry-auth.json}
 conf=${DJOS_APPS_CONF:-/etc/djos/apps.conf}
-[ -r "$conf" ] || exit 0
-authfile=${DJOS_AUTHFILE:-/etc/ostree/auth.json}
-auth=(); [ -s "$authfile" ] && auth=(--authfile "$authfile")
+
+# origen: lo genera el build (/usr/share/djos/source.conf), /etc/djos/source.conf lo pisa y el entorno gana (pruebas)
+_env=$(declare -p DJOS_APP_IMAGE DJOS_APP_SOURCE DJOS_SKIP_GITHUB 2> /dev/null)
+for _f in /usr/share/djos/source.conf /etc/djos/source.conf; do
+    # shellcheck source=/dev/null
+    [ -r "$_f" ] && . "$_f"
+done
+eval "$_env"; unset _env _f
+
+# la lista de programas: apps.conf o, si no hay, Richie DJ
+apps_list() {
+    if [ -r "$conf" ]; then
+        cat "$conf"
+    elif [ -n "${DJOS_APP_SOURCE:-}" ]; then
+        echo "richiedj $DJOS_APP_SOURCE /opt/richiedj Richie DJ"
+    elif [ -n "${DJOS_APP_IMAGE:-}" ] && [ "${DJOS_SKIP_GITHUB:-0}" != 1 ]; then
+        echo "richiedj $DJOS_APP_IMAGE /opt/richiedj Richie DJ"
+    fi
+}
+
+ref_of() {   # ref_of <imagen>: la referencia con su transporte (skopeo/podman)
+    case "$1" in
+        *://*|oci:*|oci-archive:*|docker-archive:*|containers-storage:*|dir:*) echo "$1" ;;
+        localhost/*) echo "containers-storage:$1" ;;   # pruebas con una imagen local
+        *) echo "docker://$1" ;;
+    esac
+}
 
 # ¿el programa está abierto (por nombre o por cualquier proceso que corra desde su carpeta) o hay un set sonando?
 in_use() {   # $1 carpeta, $2 nombre del proceso
-    local e
-    pgrep -x "$2" > /dev/null && return 0
+    local e p
+    for p in $(pgrep -x "$2"); do   # los procesos ya terminados (zombies) no cuentan
+        case "$(ps -o stat= -p "$p" 2> /dev/null)" in Z*|'') ;; *) return 0 ;; esac
+    done
     for e in /proc/[0-9]*/exe; do
         case "$(readlink "$e" 2> /dev/null)" in "$1"/*|"$1.old"/*) return 0 ;; esac
     done
-    [ -x /usr/libexec/djos/gig-guard ] && ! /usr/libexec/djos/gig-guard && return 0
+    [ -x "$LIBEXEC/gig-guard" ] && ! "$LIBEXEC/gig-guard" && return 0
     return 1
 }
 
-# estado de cada programa para el panel "DJOS Updates": up-to-date, updated, ready (bajado, se instala al cerrar
-# el programa), waiting (abierto o sonando), unreachable, error
-statedir=${DJOS_STATE_DIR:-/var/lib/djos}/apps
-status() {
-    mkdir -p "$statedir"
-    jq -n --arg id "$name" --arg name "$proc" --arg state "$1" --argjson time "$(date +%s)" \
-        '{id: $id, name: $name, state: $state, time: $time}' > "$statedir/$name.json.tmp" \
-        && chmod 644 "$statedir/$name.json.tmp" && mv "$statedir/$name.json.tmp" "$statedir/$name.json"
+# estado de cada programa para el panel, DJOS Center y el aviso: up-to-date, updated, ready (bajado, se instala al
+# cerrar el programa), waiting (abierto o sonando), unreachable (sin internet o sin permiso), error
+status() {   # status <estado> [versión]
+    local v=${2-}
+    [ -n "$v" ] || v=$(cat "$dir/.djos-version" 2> /dev/null)
+    install -d -m 0755 "$STATE"
+    (
+        flock 8
+        cur=$(cat "$SF" 2> /dev/null)
+        jq -e 'type == "object"' <<< "$cur" > /dev/null 2>&1 || cur='{}'
+        jq --arg id "$name" --arg name "$proc" --arg s "$1" --arg v "$v" --argjson t "$(date +%s)" \
+            '.apps[$id] = {state: $s, version: $v, name: $name, time: $t}' <<< "$cur" > "$SF.tmp.$$" \
+            && chmod 0644 "$SF.tmp.$$" && mv -f "$SF.tmp.$$" "$SF"
+        rm -f "$SF.tmp.$$"
+    ) 8> "$STATE/.status.lock"
 }
 
-while read -r name image dir proc; do
+# cambia a la versión ya bajada en <carpeta>.new (atómico) y deja el lanzador del menú y el ícono
+swap() {
+    local tmp=$dir.new f
+    rm -rf "$dir.old"
+    [ -d "$dir" ] && mv "$dir" "$dir.old"
+    if ! mv "$tmp" "$dir"; then
+        [ -d "$dir.old" ] && mv "$dir.old" "$dir"
+        return 1
+    fi
+    rm -rf "$dir.old"
+    # lanzador y ícono que trae el programa (share/applications, share/icons); las imágenes viejas apuntan a
+    # /var/opt/<id> (DJOS atómico): se corrige a la carpeta de verdad
+    if [ -d "$dir/share" ]; then
+        mkdir -p /usr/local/share
+        cp -r --no-preserve=ownership "$dir/share/." /usr/local/share/
+        for f in "$dir"/share/applications/*.desktop; do
+            [ -e "$f" ] || continue
+            sed -i "s|/var/opt/$name\\b|$dir|g" "/usr/local/share/applications/${f##*/}"
+        done
+        restorecon -RF /usr/local/share 2> /dev/null
+        gtk-update-icon-cache -q /usr/local/share/icons/hicolor 2> /dev/null
+        update-desktop-database -q /usr/local/share/applications 2> /dev/null
+    fi
+    restorecon -RF "$dir" 2> /dev/null
+    return 0
+}
+
+pulled=false
+while read -r name image dir proc <&3; do   # por el 3: lo de adentro no se come la lista
     case "$name" in ''|\#*) continue ;; esac
     [ -n "$image" ] && [ -n "$dir" ] || continue
     proc=${proc:-$name}
+    ref=$(ref_of "$image")
+
+    if [ "$mode" = --swap-only ]; then
+        if [ -f "$dir.new/.djos-digest" ] && ! in_use "$dir" "$proc"; then
+            swap && { echo "$proc: updated"; status updated; }
+        fi
+        continue
+    fi
+
     # primero solo se pregunta qué versión hay (sin bajar nada); si es la instalada, no se hace nada más
-    case "$image" in
-        localhost/*) new=$(podman image inspect --format '{{.Digest}}' "$image" 2>/dev/null) ;;   # pruebas locales
-        *) new=$(skopeo inspect "${auth[@]}" --retry-times 2 --format '{{.Digest}}' "docker://$image" 2>/dev/null) ;;
-    esac
-    [ -n "$new" ] || { echo "$name: could not reach $image"; status unreachable; continue; }
-    [ -f "$dir/.djos-digest" ] && [ "$(cat "$dir/.djos-digest")" = "$new" ] && { status up-to-date; continue; }
-    if in_use "$dir" "$proc"; then
-        echo "$name: in use, will update next time"; status waiting; continue
+    auth=()
+    if [[ $ref == docker://* ]]; then
+        if [ ! -s "$AUTH" ]; then
+            echo "$proc: not connected to GitHub yet (DJOS Center > Updates > Connect GitHub)"
+            status unreachable; continue
+        fi
+        auth=(--authfile "$AUTH")
+    fi
+    if ! info=$(skopeo inspect "${auth[@]}" --retry-times 2 "$ref" 2>&1); then
+        echo "$proc: could not reach $image: $(tail -n 1 <<< "$info")"
+        status unreachable; continue
+    fi
+    new=$(jq -r '.Digest // empty' <<< "$info")
+    # versión para mostrar: la etiqueta de la imagen o, si no tiene, la fecha en que se armó
+    ver=$(jq -r '.Labels["org.opencontainers.image.version"] // (.Created // "" | .[0:10])' <<< "$info")
+    [ -n "$new" ] || { echo "$proc: $image has no digest"; status error; continue; }
+    if [ -f "$dir/.djos-digest" ] && [ "$(cat "$dir/.djos-digest")" = "$new" ]; then
+        status up-to-date; continue
+    fi
+    # mientras suena un set no se baja nada; con el programa solo abierto se baja igual (se cambia al cerrarlo)
+    if [ -x "$LIBEXEC/gig-guard" ] && ! "$LIBEXEC/gig-guard"; then
+        echo "$proc: a set is playing, will update next time"; status waiting "$ver"; continue
     fi
     tmp="$dir.new"
     # si una vuelta anterior ya bajó y desarmó esta misma versión, se usa directamente
     if ! [ -f "$tmp/.djos-digest" ] || [ "$(cat "$tmp/.djos-digest")" != "$new" ]; then
-        case "$image" in
-            localhost/*) ;;
-            *) if ! podman pull -q "${auth[@]}" "$image" > /dev/null 2>&1; then
-                   echo "$name: could not download $image"; status error; continue
-               fi ;;
-        esac
+        [ -d "$dir" ] || echo "$proc: installing (first time, this can take a while)…"
+        if [[ $ref == containers-storage:* ]]; then
+            id=${ref#containers-storage:}
+        else
+            q=(-q); [ "$mode" = --progress ] && q=()   # con --progress el avance sale por la terminal
+            if ! id=$(podman pull "${q[@]}" "${auth[@]}" "$ref") || [ -z "$id" ]; then
+                echo "$proc: could not download $image"; status error; continue
+            fi
+            id=$(tail -n 1 <<< "$id")
+            pulled=true
+        fi
         rm -rf "$tmp"; mkdir -p "$tmp"
-        cid=$(podman create "$image" /app) || continue
+        if ! cid=$(podman create "$id" /app 2> /dev/null); then
+            rm -rf "$tmp"; echo "$proc: could not open the downloaded image"; status error; continue
+        fi
         if ! podman export "$cid" | tar -x -C "$tmp" --strip-components=1 app; then
             podman rm -f "$cid" > /dev/null 2>&1
-            rm -rf "$tmp"; echo "$name: could not unpack the update"; status error; continue
+            rm -rf "$tmp"; echo "$proc: could not unpack the update"; status error; continue
         fi
         podman rm -f "$cid" > /dev/null 2>&1
         echo "$new" > "$tmp/.djos-digest"
+        echo "$ver" > "$tmp/.djos-version"
     fi
     # se vuelve a mirar justo antes de cambiar (la descarga pudo tardar y el usuario pudo empezar a pinchar)
     if in_use "$dir" "$proc"; then
-        echo "$name: in use, update downloaded and ready for next time"; status ready; continue
+        echo "$proc: in use, update downloaded and ready for next time"; status ready "$ver"; continue
     fi
-    rm -rf "$dir.old"
-    [ -d "$dir" ] && mv "$dir" "$dir.old"
-    mv "$tmp" "$dir" && rm -rf "$dir.old"
-    # lanzador del menú e ícono que trae el programa (share/applications, share/icons)
-    if [ -d "$dir/share" ]; then
-        mkdir -p /usr/local/share && cp -r --no-preserve=ownership "$dir/share/." /usr/local/share/
-        restorecon -RF /usr/local/share 2> /dev/null
-        gtk-update-icon-cache -q /usr/local/share/icons/hicolor 2> /dev/null
+    was=updated; [ -d "$dir" ] || was=installed
+    if swap; then
+        echo "$proc: $was${ver:+ ($ver)}"; status updated
+    else
+        echo "$proc: could not install the update"; status error
     fi
-    restorecon -RF "$dir" 2> /dev/null
-    echo "$name: updated"; status updated
-done < "$conf"
-podman image prune -f > /dev/null 2>&1
+done 3< <(apps_list)
+# lo que quedó sin nombre de bajadas anteriores (las capas de la versión actual quedan para bajar solo lo nuevo)
+$pulled && podman image prune -f > /dev/null 2>&1
 exit 0

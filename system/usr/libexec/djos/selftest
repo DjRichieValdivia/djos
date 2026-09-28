@@ -12,7 +12,9 @@ bad() { echo "  [!!]   $*"; warn=$((warn + 1)); }
 title() { echo; echo "== $*"; }
 
 echo "DJOS self-test — $(date '+%F %H:%M')"
-. /etc/os-release; echo "$PRETTY_NAME  ($(rpm-ostree status --json 2>/dev/null | jq -r '[.deployments[] | select(.booted)][0].version // ""'))  kernel $(uname -r)"
+. /etc/os-release
+ver=$(rpm -q --qf '%{VERSION}' djos-optimizer 2>/dev/null) || ver="not installed"
+echo "$PRETTY_NAME  (DJOS Optimizer $ver)  kernel $(uname -r)"
 
 title "Real-time audio setup"
 c=$(cat /proc/cmdline)
@@ -25,10 +27,13 @@ pw=$(pw-metadata -n settings 2>/dev/null | grep -oE "clock\.(rate|quantum)' valu
 echo "  [..]   PipeWire: $pw"
 
 title "Graphics and displays"
-if lspci -d 10de: 2>/dev/null | grep -qiE 'vga|3d'; then
-    if [ -r /proc/driver/nvidia/version ]; then pass "NVIDIA driver $(sed -n 's/.*Kernel Module *\([0-9.]*\).*/\1/p' /proc/driver/nvidia/version | head -1) running"
-    elif [ -e /var/lib/djos/mok-pending ]; then bad "NVIDIA driver waiting for the key: restart, Enroll MOK, password universalblue"
-    else bad "NVIDIA driver not running"; fi
+nv=$(/usr/libexec/djos/nvidia-setup --status 2>/dev/null)
+if [ -n "$nv" ] && [ "$(jq -r '.gpu' <<< "$nv" 2>/dev/null)" = true ]; then
+    drv=$(jq -r '.driver // empty' <<< "$nv")
+    if [ -n "$drv" ]; then pass "NVIDIA driver $drv running"
+    elif [ "$(jq -r '.mok_pending' <<< "$nv")" = true ]; then bad "NVIDIA driver waiting for its key: restart, choose Enroll MOK, password djosdjos"
+    elif [ "$(jq -r '.rpmfusion' <<< "$nv")" != true ] || ! rpm -q akmod-nvidia > /dev/null 2>&1; then bad "NVIDIA driver not installed: sudo /usr/libexec/djos/nvidia-setup"
+    else bad "NVIDIA driver not running (not built for this kernel?): sudo /usr/libexec/djos/nvidia-setup"; fi
 fi
 kscreen-doctor -j 2>/dev/null | jq -r '.outputs[] | select(.enabled) | . as $o | ($o.modes[] | select(.id == $o.currentModeId)) as $m
     | ([$o.modes[] | select(.size.width == $m.size.width and .size.height == $m.size.height) | .refreshRate] | max) as $best
@@ -44,9 +49,9 @@ jq -r '.[] | "\(.name) (\(.id)): " + (if .audio then "audio OK" + (if .enabled t
 while read -r line; do [[ $line == *"audio OK"* ]] && pass "$line" || bad "$line"; done
 
 title "Richie DJ plays silently through your sound card (volume 0) and counts dropouts"
-APP="/var/opt/richiedj/Richie DJ"
+APP="/opt/richiedj/Richie DJ"
 if [ ! -x "$APP" ]; then bad "Richie DJ is not installed yet (DJOS Center > Updates > Check now)"
-elif pgrep -f "/var/opt/richiedj/Richie DJ" > /dev/null; then bad "close Richie DJ and run the self-test again to test the audio"
+elif pgrep -f "/opt/richiedj/Richie DJ" > /dev/null; then bad "close Richie DJ and run the self-test again to test the audio"
 else
     TD=$(mktemp -d); trap 'rm -rf "$TD"' EXIT
     T() {   # comando al canal de pruebas de Richie DJ

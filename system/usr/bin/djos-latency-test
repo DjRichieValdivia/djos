@@ -3,6 +3,14 @@
 # Uso: sudo djos-latency-test [minutos]   (20 por defecto). Resultados en /var/lib/djos/latency/<fecha>/
 set -u
 [ "$(id -u)" = 0 ] || { echo "Run it as administrator: sudo djos-latency-test [minutes]"; exit 1; }
+# las herramientas vienen recomendadas por djos-optimizer, pero se pueden haber sacado
+missing=""
+for t in cyclictest hwlatdetect rtla stress-ng; do command -v "$t" > /dev/null || missing="$missing $t"; done
+if [ -n "$missing" ]; then
+    echo "Missing tools:$missing"
+    echo "Install them with:  sudo dnf install realtime-tests rtla stress-ng"
+    exit 1
+fi
 M=${1:-20}
 [ "$M" -ge 8 ] 2>/dev/null || M=8
 OUT=/var/lib/djos/latency/$(date +%F-%H%M)

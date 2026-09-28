@@ -1,0 +1,17 @@
+[Unit]
+Description=DJOS: prepare updates (Fedora, Flatpak, Richie DJ, DJOS Optimizer); nothing installs by itself
+Documentation=file:///usr/libexec/djos/update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# nunca compite con el audio: la menor prioridad de CPU y de disco, y no corre mientras suena un set
+Nice=19
+CPUWeight=idle
+IOSchedulingClass=idle
+ExecCondition=/usr/libexec/djos/gig-guard
+ExecStart=/usr/libexec/djos/update check
+# 3 = empezó a sonar un set justo antes de arrancar: no es un error
+SuccessExitStatus=3
+TimeoutStartSec=6h
