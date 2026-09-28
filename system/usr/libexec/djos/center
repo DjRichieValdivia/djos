@@ -267,7 +267,7 @@ def main():
     if not QIcon.themeName() or QIcon.themeName() == "hicolor":
         m = re.search(r"^\[Icons\]\s*\nTheme=(\S+)", read(os.path.expanduser("~/.config/kdeglobals")) or read("/etc/xdg/kdeglobals"), re.M)
         QIcon.setThemeName(m.group(1) if m else "Papirus-Dark")
-    app.setWindowIcon(QIcon.fromTheme("djos"))
+    app.setWindowIcon(QIcon.fromTheme("djoscenter"))
     engine = QQmlApplicationEngine()
     backend = Backend()
     engine.rootContext().setContextProperty("djos", backend)
