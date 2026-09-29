@@ -14,7 +14,8 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
   changes to DJOS itself are made in its **private** GitHub repo (`gh auth login`, then clone it; the owner is
   `DJOS_OWNER` in `/usr/share/djos/source.conf`), which builds and publishes the RPM.
 - `sudo dnf remove djos-optimizer` gives back a plain Fedora (kernel options, services, power profiles and boot
-  screen are restored; Richie DJ stays in `/opt/richiedj`).
+  screen are restored; Richie DJ stays in `/opt/richiedj`; Fedora's desktop comes back at the user's next login
+  through the one-time `~/.config/autostart/djos-restore-desktop.desktop`).
 - Setup logic: `/usr/libexec/djos/optimizer-setup install|upgrade|remove|posttrans|cleanup [--dry-run]` (run by the
   package scriptlets; `cleanup` removes apps a DJ PC doesn't need, never anything essential). Machine state is in
   `/var/lib/djos/`, machine config in `/etc/djos/`.
@@ -58,11 +59,13 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
 - Audio output "ALSA Direct" opens the card directly (it asks PipeWire to release it via ReserveDevice1).
 
 ## NVIDIA
-- RPM Fusion `akmod-nvidia` + `xorg-x11-drv-nvidia-cuda`; akmods rebuilds the driver for every new kernel.
+- RPM Fusion `akmod-nvidia` + `xorg-x11-drv-nvidia-cuda`; akmods rebuilds the driver for every new kernel. After
+  an offline update (Install & restart / shut down) `djos-nvidia-offline.service` builds it before the restart.
   Install/repair: `sudo /usr/libexec/djos/nvidia-setup`; state: `/usr/libexec/djos/nvidia-setup --status`.
 - Secure Boot: the driver is signed with this PC's key (`/etc/pki/akmods/certs/public_key.der`, from `kmodgenca`),
-  which must be enrolled once: after `mokutil --import`, restart → blue MokManager screen → Enroll MOK → Continue →
-  Yes → password `djosdjos` → Reboot. Check: `mokutil --sb-state`,
+  which must be enrolled once: after `mokutil --import`, restart → blue screen "Press any key to perform MOK
+  management" (60 s, then it boots normally) → any key → Enroll MOK → Continue → Yes → password `djosdjos` →
+  Reboot. Check: `mokutil --sb-state`,
   `sudo mokutil --test-key /etc/pki/akmods/certs/public_key.der`, `cat /proc/driver/nvidia/version`, `nvidia-smi`.
 - Build failures: `/var/cache/akmods/nvidia/*.log`; retry with `sudo akmods --force`, or boot the previous kernel.
 

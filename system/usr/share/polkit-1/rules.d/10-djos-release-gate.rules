@@ -1,0 +1,11 @@
+// DJOS Optimizer: a una versión nueva de Fedora se pasa solo desde DJOS Center (Updates > Upgrade), que la ofrece
+// 4 semanas después de salir y cuando RPM Fusion ya tiene el driver de NVIDIA para ella. Discover (PackageKit) la
+// ofrece el mismo día que sale y, en Fedora, sin contraseña para los administradores (org.freedesktop.packagekit.rules);
+// además la hace con distro-sync y permiso para sacar paquetes. Acá se cierra ese camino. Las actualizaciones normales
+// de Discover (y las offline) no cambian. Va antes que la regla de PackageKit (el nombre ordena primero).
+polkit.addRule(function (action, subject) {
+    if (action.id == "org.freedesktop.packagekit.upgrade-system" ||
+        action.id == "org.freedesktop.packagekit.trigger-offline-upgrade") {
+        return polkit.Result.NO;
+    }
+});

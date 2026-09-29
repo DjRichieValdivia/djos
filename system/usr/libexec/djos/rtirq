@@ -20,7 +20,8 @@ fi
 
 boost() {   # boost <dispositivo PCI> <prioridad>
     local pci=$1 prio=$2 irq pid
-    for irq in $(ls "/sys/bus/pci/devices/$pci/msi_irqs" 2>/dev/null; cat "/sys/bus/pci/devices/$pci/irq" 2>/dev/null); do
+    # con MSI el número aparece en msi_irqs y también en irq: cada uno una sola vez
+    for irq in $( { ls "/sys/bus/pci/devices/$pci/msi_irqs"; cat "/sys/bus/pci/devices/$pci/irq"; } 2>/dev/null | sort -un); do
         [ "$irq" = 0 ] && continue
         [ -n "$aud" ] && echo "$aud" > "/proc/irq/$irq/smp_affinity_list" 2>/dev/null
         for pid in $(ps -eo pid=,comm= | awk -v p="irq/$irq-" 'index($2, p) == 1 {print $1}'); do

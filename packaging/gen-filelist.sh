@@ -16,6 +16,9 @@ own_dir() {
         usr/lib/tuned/profiles/djos*) return 0 ;;
         usr/share/plasma/look-and-feel/org.djos.*) return 0 ;;
         usr/share/plasma/plasmoids/org.djos.*) return 0 ;;
+        # las páginas de DJOS en Configuración del sistema: ningún paquete de Fedora 44/45 trae estas carpetas (sin
+        # ser nuestras quedaban vacías después de desinstalar)
+        usr/share/plasma/systemsettings|usr/share/plasma/systemsettings/externalmodules) return 0 ;;
         usr/share/plymouth/themes/djos|usr/share/plymouth/themes/djos/*) return 0 ;;
         usr/share/wallpapers/DJOS*) return 0 ;;
         usr/share/icons/Papirus-Dark-DJOS|usr/share/icons/Papirus-Dark-DJOS/*) return 0 ;;

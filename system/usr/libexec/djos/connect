@@ -1,7 +1,9 @@
 #!/usr/bin/bash
 # DJOS Optimizer: conecta esta PC con GitHub (una sola vez) para bajar Richie DJ y las actualizaciones de DJOS, que
-# son privadas. No se pega ningún código secreto: se entra con el navegador (gh, "device flow") y lo que se guarda
-# para la PC es un acceso que alcanza para leer los paquetes (read:packages).
+# son privadas. No se pega ningún código secreto: se entra con el navegador (gh, "device flow"). Lo que se guarda para
+# la PC es el mismo token de gh que ya tiene el usuario: además de read:packages trae los permisos mínimos de gh (repo,
+# read:org, gist), así que puede escribir en los repos de la cuenta. Por eso queda solo para root (0600). Uno que sirva
+# solo para leer paquetes necesita una OAuth App propia de DJOS (su client_id) y todavía no existe.
 #   connect            (usuario, en una terminal) inicia sesión con gh si hace falta y guarda el acceso de la PC
 #   connect store [u]  (root, vía pkexec) lee el token por la entrada estándar, lo prueba contra ghcr.io y lo guarda
 #                      en /etc/djos/registry-auth.json (0600, formato containers-auth). El token nunca se muestra.
@@ -58,6 +60,16 @@ has_scope() {   # la sesión de gh tiene el permiso read:packages
         | tr ',' '\n' | sed 's/^ *//' | grep -qx 'read:packages'
 }
 
+# ¿gh puede copiar el código solo? Tiene que tener --clipboard y con qué copiar en esta sesión: en Wayland wl-copy y
+# wl-paste (wl-clipboard, lo pide el paquete), si no xclip o xsel. Si no, gh igual lo muestra para escribirlo a mano
+can_copy() {
+    gh auth login --help 2> /dev/null | grep -q -- '--clipboard' || return 1
+    if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-copy > /dev/null && command -v wl-paste > /dev/null; then
+        return 0
+    fi
+    [ -n "${DISPLAY:-}" ] && { command -v xclip > /dev/null || command -v xsel > /dev/null; }
+}
+
 connect_user() {
     local clip=() login out
     echo "Connect GitHub"
@@ -72,7 +84,7 @@ connect_user() {
         pkcon install -y --noninteractive gh > /dev/null 2>&1 || pkexec dnf5 install -y gh
         command -v gh > /dev/null || { echo "Could not install gh. Check the internet connection and try again."; return 1; }
     fi
-    gh auth login --help 2> /dev/null | grep -q -- '--clipboard' && clip=(--clipboard)
+    can_copy && clip=(--clipboard)
     if gh auth status --hostname github.com > /dev/null 2>&1; then
         if ! has_scope; then
             echo "Your GitHub session needs one more permission (read packages)."

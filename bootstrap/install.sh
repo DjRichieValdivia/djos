@@ -18,6 +18,7 @@
 #   DJOS_OPTIMIZER_SOURCE=oci-archive:/x.tar           baja el RPM de esa imagen (transporte de skopeo)
 #   DJOS_APP_SOURCE=oci-archive:/richiedj.tar          Richie DJ desde esa imagen
 #   DJOS_SKIP_GITHUB=1                                  no usa GitHub para nada
+#   DJOS_TEST_FORCE_NVIDIA=1                            hace de cuenta que hay una placa NVIDIA (nvidia-setup)
 set -u
 
 AUTH=/etc/djos/registry-auth.json
@@ -50,6 +51,39 @@ ask() {   # ask <pregunta>: 0 si contesta que sí (por defecto no)
 has_scope() {
     gh api -i user 2> /dev/null | tr -d '\r' | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes: *//p' \
         | tr ',' '\n' | sed 's/^ *//' | grep -qx 'read:packages'
+}
+# detached <nombre> <comando…>: corre el comando como root en un servicio aparte (systemd-run), no colgado de esta
+# ventana: si Konsole se cierra o la sesión de Plasma se cae en medio (la actualización cambia al propio Plasma), dnf
+# termina igual y la transacción no queda a medias. Lo que escribe se ve acá y queda en /var/log/<nombre>.log; el
+# código de salida lo deja en /run/<nombre>.rc. No se usa "systemd-run --wait": si la transacción actualiza systemd
+# (daemon-reexec), pierde el aviso de que terminó y se queda esperando para siempre
+detached() {
+    local name=$1 log=/var/log/$1.log rcf=/run/$1.rc tailpid gone=0 rc
+    shift
+    if systemctl -q is-active "$name.service" 2> /dev/null; then
+        info "A previous run of this step is still working: waiting for it to finish first…"
+        while systemctl -q is-active "$name.service" 2> /dev/null; do sleep 5; done
+    fi
+    sudo rm -f "$log" "$rcf"
+    # shellcheck disable=SC2016 # los $ son del sh de adentro
+    sudo systemd-run --quiet --collect --unit="$name" -p StandardOutput="append:$log" -p StandardError="append:$log" \
+        -- sh -c '"$@"; echo $? > "$0"' "$rcf" "$@" || return 1
+    # (en pantalla sin dos avisos de los scriptlets de systemd que no significan nada acá: no pudo recargar las
+    # sesiones de usuario en medio de la transacción, y eso pasa igual al reiniciar; en el log quedan)
+    tail -n +1 -F "$log" 2> /dev/null > >(grep --line-buffered -v -e 'Failed to start transient service unit:' \
+        -e 'Failed to start jobs: Transport endpoint is not connected') &
+    tailpid=$!
+    # hasta que deje el código; si la unidad desaparece sin dejarlo (la cortaron), a los 10 s se da por fallada
+    while [ ! -e "$rcf" ]; do
+        if systemctl -q is-active "$name.service" 2> /dev/null; then gone=0; else gone=$((gone + 1)); fi
+        [ "$gone" -ge 5 ] && break
+        sleep 2
+    done
+    sleep 2
+    kill "$tailpid" 2> /dev/null
+    wait "$tailpid" 2> /dev/null
+    rc=$(cat "$rcf" 2> /dev/null)
+    [ "${rc:-1}" = 0 ]
 }
 
 printf '%sDJOS Optimizer: first install%s  (%s)\n' "$bold" "$off" "$(date '+%Y-%m-%d %H:%M')"
@@ -140,7 +174,8 @@ fi
 
 # --- 4. Fedora al día ----------------------------------------------------------------------------------------------
 step "Updating Fedora (can take a while the first time)"
-sudo dnf5 upgrade --refresh -y || die "The Fedora update failed."
+info "It keeps going even if this window closes (the full log: /var/log/djos-bootstrap-upgrade.log)."
+detached djos-bootstrap-upgrade dnf5 upgrade --refresh -y || die "The Fedora update failed."
 ok "Fedora is up to date"
 
 # --- 5. djos-optimizer ---------------------------------------------------------------------------------------------
@@ -165,28 +200,44 @@ if [ -z "$rpmfile" ]; then
     [ -n "$rpmfile" ] || die "The DJOS Optimizer download has no package inside."
 fi
 new=$(sudo rpm -qp --qf '%{VERSION}' "$rpmfile" 2> /dev/null)
-cur=$(rpm -q --qf '%{VERSION}' djos-optimizer 2> /dev/null) || cur=""
+cur=$(rpm -q --qf '%{VERSION}\n' djos-optimizer 2> /dev/null | sort -V | tail -n 1) || cur=""
+fresh=false
 if [ -n "$cur" ] && [ "$cur" = "$new" ]; then
-    ok "DJOS Optimizer $cur is already installed"
+    if [ -s /var/lib/djos/setup-version ]; then
+        ok "DJOS Optimizer $cur is already installed"
+    else
+        # instalado pero sin terminar de preparar la PC (una vuelta anterior se cortó en medio de la instalación)
+        info "DJOS Optimizer $cur is installed but this PC's setup did not finish: finishing it now."
+        sudo /usr/libexec/djos/optimizer-setup install || die "The DJOS setup did not finish."
+        sudo /usr/libexec/djos/optimizer-setup posttrans
+        fresh=true
+        ok "DJOS Optimizer $cur set up"
+    fi
 else
-    sudo dnf5 install -y "$rpmfile" || die "Could not install DJOS Optimizer."
-    ok "DJOS Optimizer $(rpm -q --qf '%{VERSION}' djos-optimizer) installed"
+    # (localpkg_gpgcheck=0 explícito: el RPM de DJOS todavía no va firmado y no depende de lo que diga dnf.conf)
+    detached djos-bootstrap-install dnf5 install -y --setopt=localpkg_gpgcheck=0 "$rpmfile" \
+        || die "Could not install DJOS Optimizer."
+    fresh=true
+    ok "DJOS Optimizer $(rpm -q --qf '%{VERSION}\n' djos-optimizer | sort -V | tail -n 1) installed"
 fi
 [ -n "$work" ] && sudo rm -rf "$work"
-# el que busca actualizaciones (cada 6 horas) y el aviso de cada usuario, por si el paquete no los dejó prendidos
-# (sin --now: la primera búsqueda arranca después de reiniciar, no en medio de esta instalación)
-systemctl -q is-enabled djos-update.timer 2> /dev/null || sudo systemctl enable djos-update.timer 2> /dev/null
-[ "$(systemctl --global is-enabled djos-update-notify.timer 2> /dev/null)" = enabled ] \
-    || sudo systemctl --global enable djos-update-notify.timer 2> /dev/null
+# el que busca actualizaciones (cada 6 horas) y el aviso de cada usuario, por si el paquete no los dejó prendidos. Solo
+# al instalar: si después el usuario los apagó, otra vuelta de este script no los prende (sin --now: la primera búsqueda
+# arranca después de reiniciar, no en medio de esta instalación)
+if $fresh; then
+    systemctl -q is-enabled djos-update.timer 2> /dev/null || sudo systemctl enable djos-update.timer 2> /dev/null
+    [ "$(systemctl --global is-enabled djos-update-notify.timer 2> /dev/null)" = enabled ] \
+        || sudo systemctl --global enable djos-update-notify.timer 2> /dev/null
+fi
 
 # --- 6. NVIDIA -----------------------------------------------------------------------------------------------------
 step "Graphics driver"
 mok=false
-if lspci -d 10de: 2> /dev/null | grep -qiE 'vga|3d controller|display'; then
+if [ "${DJOS_TEST_FORCE_NVIDIA:-0}" = 1 ] || lspci -d 10de: 2> /dev/null | grep -qiE 'vga|3d controller|display'; then
     info "NVIDIA graphics card found: installing its driver (the build takes a few minutes)."
     [ -x "$LIBEXEC/nvidia-setup" ] || die "nvidia-setup is missing (DJOS Optimizer did not install well)."
     # shellcheck disable=SC2024  # la terminal del usuario, a propósito
-    sudo "$LIBEXEC/nvidia-setup" < /dev/tty || die "The NVIDIA driver setup failed."
+    sudo --preserve-env=DJOS_TEST_FORCE_NVIDIA "$LIBEXEC/nvidia-setup" < /dev/tty || die "The NVIDIA driver setup failed."
     [ "$("$LIBEXEC/nvidia-setup" --status 2> /dev/null | jq -r '.mok_pending' 2> /dev/null)" = true ] && mok=true
     ok "NVIDIA driver ready"
 else
@@ -226,7 +277,8 @@ fi
 printf '\n%sAll done.%s What is left:\n' "$green" "$off"
 echo "  1. Restart the PC."
 if $mok; then
-    echo "  2. A blue screen appears once (\"Perform MOK management\"). With the arrow keys and Enter choose:"
+    echo "  2. A blue screen says \"Press any key to perform MOK management\": press the space bar (you have one minute)."
+    echo "     The menu starts on \"Continue boot\": with the arrow keys and Enter choose"
     echo "        Enroll MOK → Continue → Yes → type the password  $MOK_PASSWORD  (nothing shows while typing) → Reboot"
     echo "     If you miss it, nothing breaks: DJOS reminds you and it appears again on the next restart."
     echo "  3. Open the app menu and run \"DJOS Self-Test\" to check that everything is ready for a set."

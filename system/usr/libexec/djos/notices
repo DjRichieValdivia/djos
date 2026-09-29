@@ -18,13 +18,20 @@ if [ "${1:-}" = controllers ]; then controller_notice; exit 0; fi
 
 nv=$(/usr/libexec/djos/nvidia-setup --status 2> /dev/null)
 if [ -n "$nv" ] && [ "$(jq -r '.gpu' <<< "$nv" 2> /dev/null)" = true ]; then
+    drv=$(jq -r '.driver // empty' <<< "$nv")
+    inst=$(rpm -q --qf '%{VERSION}' xorg-x11-drv-nvidia 2> /dev/null) || inst=""
     if [ "$(jq -r '.mok_pending' <<< "$nv")" = true ]; then
         notify-send -a DJOS -u critical -i video-display \
             "Finish setting up the NVIDIA graphics driver" \
             "Until then the PC uses basic graphics and only one monitor.
-Restart the PC: on the blue screen choose Enroll MOK → Continue → Yes, type the password djosdjos and choose Reboot.
+Restart the PC: when the blue screen says \"Press any key\", press the space bar, then choose Enroll MOK → Continue → Yes, type the password djosdjos and choose Reboot.
 (Or turn off Secure Boot in the BIOS.)"
-    elif [ -z "$(jq -r '.driver // empty' <<< "$nv")" ]; then
+    elif [ -n "$drv" ] && [ -n "$inst" ] && [ "$drv" != "$inst" ]; then
+        # el driver se actualizó pero arrancó con el módulo anterior (no coincide con el resto del driver)
+        notify-send -a DJOS -u critical -i video-display \
+            "Restart once more to finish the NVIDIA update" \
+            "The NVIDIA driver $inst is installed but $drv is still running: graphics and CUDA may not work well until you restart the PC."
+    elif [ -z "$drv" ]; then
         # akmods compila el driver para cada núcleo nuevo al arrancar; si falló (o todavía no se instaló)
         notify-send -a DJOS -u critical -i video-display \
             "The NVIDIA graphics driver is not running" \

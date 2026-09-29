@@ -3,10 +3,13 @@
 #   install     primera instalación (%post, $1 == 1): todo lo de abajo, y además apaga servicios que una PC de DJ
 #               no usa, enmascara kaccess y nvidia-powerd y le pone nombre a la PC
 #   upgrade     actualización del paquete (%post, $1 >= 2): vuelve a aplicar lo mismo sin pisar lo que el usuario
-#               cambió después (servicios que volvió a prender, otra pantalla de arranque, otro nombre)
-#   posttrans   al final de la transacción (%posttrans): rearma el initramfs si cambió la pantalla de arranque
+#               cambió después (servicios que volvió a prender, otra pantalla de arranque, otro nombre, argumentos del
+#               núcleo que sacó, usuarios que sacó de los grupos de audio); solo agrega lo que la versión trae nuevo
+#   posttrans   al final de la transacción (%posttrans): copia los valores de KDE a /etc/xdg y rearma el initramfs si
+#               cambió lo de DJOS que va adentro (pantalla de arranque, opciones de módulos)
 #   remove      desinstalación (%preun, $1 == 0): deja Fedora como estaba (el initramfs lo rearma después el %postun
-#               del paquete, cuando los archivos ya no están: /run/djos-optimizer-initramfs)
+#               del paquete, cuando los archivos ya no están: /run/djos-optimizer-initramfs), borra las imágenes de
+#               podman que bajó DJOS y deja a cada usuario con el escritorio de DJOS la vuelta al de Fedora
 #   cleanup     saca paquetes que una PC de DJ no necesita (bootstrap/install.sh lo pregunta antes); frena si
 #               sacarlos arrastrara algo esencial
 #   groups      (djos-users.service) usuarios nuevos a los grupos audio y pipewire
@@ -21,7 +24,6 @@ KARGS="preempt=full threadirqs usbcore.autosuspend=-1"
 PPD=/etc/tuned/ppd.conf
 PPD_TPL=$SHARE/tuned/ppd.conf
 GRUB_CFG=/boot/grub2/grub.cfg                      # en Fedora 44 es el mismo para BIOS y UEFI (el de la ESP es un puente)
-WIN_GEN=/etc/grub.d/41_djos_windows
 THEME_DIR=/usr/share/plymouth/themes/djos
 PLY_CONF=/etc/plymouth/plymouthd.conf
 INITRD_REBUILD=/run/djos-optimizer-initramfs      # remove lo pide, el %postun del spec rearma el initramfs
@@ -61,9 +63,12 @@ list_add() {   # list_add <archivo de estado> <renglón>: agrega sin repetir
     grep -qxF -- "$2" "$STATE/$1" 2> /dev/null || printf '%s\n' "$2" >> "$STATE/$1"
 }
 
-# palabras (argumentos del núcleo): agregar las que faltan / sacar las indicadas, sin repetir ni reordenar el resto
+# palabras (argumentos del núcleo): agregar las que faltan / sacar las indicadas, sin repetir ni reordenar el resto.
+# La salida lleva un solo espacio entre palabras (ni dobles ni al principio o al final)
 words_add() {
-    local -a now add; local out=$1 w
+    local -a now add; local out w
+    read -ra now <<< "$1"
+    out="${now[*]}"
     read -ra add <<< "$2"
     for w in "${add[@]}"; do
         read -ra now <<< "$out"
@@ -82,14 +87,23 @@ words_del() {
 
 # --- grupos: tiempo real para Richie DJ, DAWs y PipeWire (límites en /etc/security/limits.d/95-djos-audio.conf)
 human_users() { awk -F: '$3 >= 1000 && $3 < 60000 && $7 !~ /(nologin|false)$/ {print $1}' /etc/passwd; }
-do_groups() {
+# cada usuario una sola vez (anotados en /var/lib/djos/groups-done): si después alguien lo saca de un grupo, ni una
+# actualización de DJOS ni un cambio en /etc/passwd lo vuelven a poner
+do_groups() {   # do_groups [upgrade]
     local u g
+    if [ "${1:-}" = upgrade ] && [ ! -e "$STATE/groups-done" ] && [ -e "$STATE/setup-version" ]; then
+        # instalado con una versión que no lo anotaba: los usuarios que ya están ya pasaron por acá
+        for u in $(human_users); do list_add groups-done "$u"; done
+        return 0
+    fi
     for u in $(human_users); do
+        grep -qxF -- "$u" "$STATE/groups-done" 2> /dev/null && continue
         for g in audio pipewire; do
             getent group "$g" > /dev/null || continue
             id -nG "$u" 2> /dev/null | tr ' ' '\n' | grep -qx "$g" && continue
             run usermod -aG "$g" "$u" && log "$u added to group $g (takes effect at the next login)"
         done
+        list_add groups-done "$u"
     done
 }
 
@@ -129,75 +143,123 @@ undo_hostname() {
 default_args() { grubby --info=DEFAULT 2> /dev/null | sed -n 's/^args="\(.*\)"$/\1/p' | head -1; }
 boot_entries() { ls /boot/loader/entries/*.conf > /dev/null 2>&1; }
 
+replace_file() {   # replace_file <archivo>: pone <archivo>.djos-new en su lugar de una vez (un corte de luz no lo deja
+                    # por la mitad), con los permisos y la etiqueta de SELinux del original
+    [ -f "$1" ] && chmod --reference="$1" "$1.djos-new" 2> /dev/null
+    mv -f "$1.djos-new" "$1" || { rm -f "$1.djos-new"; return 1; }
+    have restorecon && restorecon "$1" 2> /dev/null
+    return 0
+}
 sync_default_grub() {   # sync_default_grub add|del <args>
-    local f=/etc/default/grub cur new
+    local f=/etc/default/grub cur raw new
     [ -f "$f" ] || return 0
+    # se lee como lo lee grub2-mkconfig, pero sin "set -u": con él, una variable sin definir en el archivo (p. ej. el
+    # GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT …" de muchas guías) cortaba la lectura, el valor quedaba
+    # vacío y la línea se reescribía solo con los de DJOS (se perdían rhgb quiet, rd.luks…, el blacklist de nouveau)
     # shellcheck source=/dev/null
-    cur=$(. "$f" > /dev/null 2>&1; printf '%s' "${GRUB_CMDLINE_LINUX:-}")
+    if ! cur=$(set +u; . "$f" > /dev/null 2>&1 && printf '%s' "${GRUB_CMDLINE_LINUX-}"); then
+        warn "$f could not be read: left as is"; return 0
+    fi
+    # si la línea tiene algo pero la lectura dio vacío, algo no cuadra: no se toca
+    raw=$(sed -n 's/^[[:space:]]*GRUB_CMDLINE_LINUX=//p' "$f" | tail -n 1 | tr -d "\"'[:space:]")
+    if [ -z "$cur" ] && [ -n "$raw" ]; then warn "GRUB_CMDLINE_LINUX in $f could not be read: left as is"; return 0; fi
     case "$cur" in *\"*|*\\*) warn "GRUB_CMDLINE_LINUX in $f has quotes: left as is"; return 0 ;; esac
     if [ "$1" = add ]; then new=$(words_add "$cur" "$2"); else new=$(words_del "$cur" "$2"); fi
-    [ "$new" = "$cur" ] && return 0
+    [ "$new" = "$(words_add "$cur" "")" ] && return 0
     [ "$DRY" = 1 ] && { echo "  would set GRUB_CMDLINE_LINUX=\"$new\" in $f"; return 0; }
     NEWLINE="GRUB_CMDLINE_LINUX=\"$new\"" awk 'BEGIN { l = ENVIRON["NEWLINE"] }
         /^[[:space:]]*GRUB_CMDLINE_LINUX=/ { if (!d) print l; d = 1; next }
         { print }
-        END { if (!d) print l }' "$f" > "$f.djos-new" && cat "$f.djos-new" > "$f"
+        END { if (!d) print l }' "$f" > "$f.djos-new" && replace_file "$f"
     rm -f "$f.djos-new"
     # /etc/kernel/cmdline no puede quedar más viejo que /etc/default/grub (si no, el próximo núcleo rearma todo)
     [ -f /etc/kernel/cmdline ] && touch /etc/kernel/cmdline
 }
-sync_kernel_cmdline() {   # sync_kernel_cmdline add|del <args>
+sync_kernel_cmdline() {   # sync_kernel_cmdline add|del <args>: la primera línea (las demás, si hay, quedan igual)
     local f=/etc/kernel/cmdline cur new
     [ -f "$f" ] || return 0
-    cur=$(head -1 "$f")
+    cur=$(head -n 1 "$f")
     if [ "$1" = add ]; then new=$(words_add "$cur" "$2"); else new=$(words_del "$cur" "$2"); fi
-    [ "$new" = "$cur" ] && return 0
+    [ "$new" = "$(words_add "$cur" "")" ] && return 0
     [ "$DRY" = 1 ] && { echo "  would write '$new' to $f"; return 0; }
-    printf '%s\n' "$new" > "$f"
+    { printf '%s\n' "$new"; tail -n +2 "$f"; } > "$f.djos-new" && replace_file "$f"
+    rm -f "$f.djos-new"
 }
 
-do_kargs() {
+# Anotado en /var/lib/djos: kargs-added (los que DJOS agregó: son los que saca al desinstalar), kargs-applied (los que
+# DJOS ya puso alguna vez: una actualización nunca vuelve a poner uno que después se sacó a mano, p. ej. para probar
+# algo con un USB o con NVIDIA; solo agrega los que una versión nueva traiga por primera vez) y kargs-replaced (lo que
+# había para la misma opción antes de DJOS, p. ej. preempt=lazy: grubby lo reemplaza, y vuelve al desinstalar)
+do_kargs() {   # do_kargs install|upgrade
     have grubby || { warn "grubby not found: kernel options not set"; return 0; }
     boot_entries || { log "no boot entries here (not an installed system): kernel options skipped"; return 0; }
-    local def kc a missing="" need=0
+    local def kc a old want="" missing="" need=0
+    if [ "$1" = upgrade ]; then
+        # instalado con una versión que no lo anotaba: esa puso todos (si falta alguno, lo sacó el usuario)
+        if [ ! -e "$STATE/kargs-applied" ] && [ -e "$STATE/setup-version" ]; then
+            for a in $KARGS; do list_add kargs-applied "$a"; done
+        fi
+        for a in $KARGS; do
+            grep -qxF -- "$a" "$STATE/kargs-applied" 2> /dev/null || want="${want:+$want }$a"
+        done
+        [ -n "$want" ] || return 0
+    else
+        want=$KARGS
+    fi
     def=" $(default_args) "
-    kc=" $(head -1 /etc/kernel/cmdline 2> /dev/null) "
-    for a in $KARGS; do
+    kc=" $(head -n 1 /etc/kernel/cmdline 2> /dev/null) "
+    for a in $want; do
         case "$def" in *" $a "*) ;; *) missing="${missing:+$missing }$a"; need=1 ;; esac
         [ -f /etc/kernel/cmdline ] && case "$kc" in *" $a "*) ;; *) need=1 ;; esac
     done
-    # anotado ANTES de tocar nada: al desinstalar se saca solo lo que puso DJOS (no lo que el usuario ya tenía)
-    for a in $missing; do list_add kargs-added "$a"; done
+    # anotado ANTES de tocar nada: al desinstalar se saca solo lo que puso DJOS (no lo que el usuario ya tenía) y
+    # vuelve lo que tenía para la misma opción
+    for a in $missing; do
+        list_add kargs-added "$a"
+        case "$a" in *=*)
+            for old in $def; do
+                case "$old" in "${a%%=*}="*) [ "$old" != "$a" ] && list_add kargs-replaced "$old" ;; esac
+            done ;;
+        esac
+    done
     if [ "$need" = 1 ]; then
-        run grubby --update-kernel=ALL --args="$KARGS" \
-            && log "kernel options set: $KARGS (take effect at the next restart)"
+        run grubby --update-kernel=ALL --args="$want" \
+            && log "kernel options set: $want (take effect at the next restart)"
     fi
-    sync_default_grub add "$KARGS"
-    sync_kernel_cmdline add "$KARGS"
+    sync_default_grub add "$want"
+    sync_kernel_cmdline add "$want"
+    for a in $want; do list_add kargs-applied "$a"; done
 }
 undo_kargs() {
-    local added
+    local added back
     added=$(tr '\n' ' ' 2> /dev/null < "$STATE/kargs-added")   # 2> primero: sin aviso si no existe
-    [ -n "${added// /}" ] || return 0
-    if have grubby && boot_entries; then
-        run grubby --update-kernel=ALL --remove-args="$added" && log "kernel options removed: $added"
+    back=$(tr '\n' ' ' 2> /dev/null < "$STATE/kargs-replaced")
+    if [ -n "${added// /}" ]; then
+        if have grubby && boot_entries; then
+            run grubby --update-kernel=ALL --remove-args="$added" && log "kernel options removed: $added"
+        fi
+        sync_default_grub del "$added"
+        sync_kernel_cmdline del "$added"
     fi
-    sync_default_grub del "$added"
-    sync_kernel_cmdline del "$added"
+    if [ -n "${back// /}" ]; then   # lo que había antes de DJOS para esas mismas opciones
+        if have grubby && boot_entries; then
+            run grubby --update-kernel=ALL --args="$back" && log "kernel options restored: $back"
+        fi
+        sync_default_grub add "$back"
+        sync_kernel_cmdline add "$back"
+    fi
 }
 
 # --- perfiles de energía: los de Plasma (tuned-ppd) pasan a los de DJOS. /etc/tuned/ppd.conf es de tuned-ppd:
 #     se guarda el original y se vuelve a poner al desinstalar
 ppd_is_ours() { grep -qE '^[[:space:]]*performance[[:space:]]*=[[:space:]]*djos[[:space:]]*$' "$PPD" 2> /dev/null; }
-# tal cual lo trae tuned-ppd (rpm -V no lo marca como cambiado)
-ppd_is_stock() { rpm -q tuned-ppd > /dev/null 2>&1 && ! rpm -V tuned-ppd 2> /dev/null | grep -q " $PPD\$"; }
 do_tuned() {   # do_tuned install|upgrade
     [ -f "$PPD_TPL" ] || { warn "$PPD_TPL missing"; return 0; }
     local changed=0
     if [ -f "$PPD" ] && ! cmp -s "$PPD_TPL" "$PPD"; then
-        # al actualizar solo se pisa si es el nuestro (de otra versión) o el original de Fedora (p. ej. tuned-ppd
-        # se instaló después); si el usuario lo cambió a mano, se respeta
-        if ppd_is_ours || [ "$1" = install ] || ppd_is_stock; then
+        # al actualizar solo se pisa si es el nuestro (de otra versión); si el usuario lo cambió a mano o volvió al de
+        # Fedora (dnf reinstall tuned-ppd, lo que sugiere el aviso de abajo), se respeta
+        if ppd_is_ours || [ "$1" = install ]; then
             if ! ppd_is_ours && [ ! -e "$STATE/backup/ppd.conf" ]; then
                 run mkdir -p "$STATE/backup" && run cp -a "$PPD" "$STATE/backup/ppd.conf"
             fi
@@ -205,7 +267,7 @@ do_tuned() {   # do_tuned install|upgrade
             have restorecon && run restorecon "$PPD" 2> /dev/null
             log "power profiles mapped to the DJOS tuned profiles (Performance = djos, Balanced = djos-balanced)"
         else
-            log "$PPD was changed by hand: left as is"
+            log "$PPD is not the DJOS one (changed by hand or back to Fedora's): left as is"
         fi
     elif [ ! -f "$PPD" ]; then
         log "tuned-ppd is not installed: power profile mapping skipped"
@@ -304,10 +366,12 @@ undo_services() {
     done < <(cat "$STATE/disabled-units" 2> /dev/null)
 }
 
-# --- pantalla de arranque djos (va dentro del initramfs: se rearma en posttrans, solo si hizo falta)
+# --- pantalla de arranque djos (va dentro del initramfs: se rearma en posttrans, solo si hizo falta). También van
+#     adentro las opciones de módulos de DJOS (ntsync, audio): si una versión nueva las cambia, también se rearma
 theme_sum() {
-    find "$THEME_DIR" \( -type f -o -type l \) -print0 2> /dev/null | LC_ALL=C sort -z | xargs -0r cat 2> /dev/null \
-        | md5sum | cut -d' ' -f1
+    { find "$THEME_DIR" \( -type f -o -type l \) -print0 2> /dev/null | LC_ALL=C sort -z | xargs -0r cat 2> /dev/null
+      cat /usr/lib/modules-load.d/djos-*.conf /usr/lib/modprobe.d/djos-*.conf 2> /dev/null
+    } | md5sum | cut -d' ' -f1
 }
 do_plymouth() {   # do_plymouth install|upgrade
     have plymouth-set-default-theme || return 0
@@ -339,8 +403,58 @@ rebuild_initramfs() {
     log "boot screen updated"
 }
 do_posttrans() {
+    do_xdg
     [ -e "$STATE/initramfs-pending" ] || return 0
     rebuild_initramfs && run rm -f "$STATE/initramfs-pending"
+    return 0
+}
+
+# --- valores por defecto de KDE en /etc/xdg (kdeglobals, kwinrc, powerdevilrc…). No son archivos del paquete: si un
+#     día Fedora trae uno con el mismo nombre, rpm no choca (un choque frenaría todas las actualizaciones de Fedora).
+#     Se copian desde /usr/share/djos/xdg solo si no están o si siguen tal cual los dejó DJOS (sha256 anotado en
+#     /var/lib/djos/xdg-sums); lo que alguien cambió se respeta. Al actualizar DJOS va en posttrans: rpm borra los de
+#     la versión anterior (que eran del paquete) después de %post. Al desinstalar se borran los que nadie cambió
+XDG_SRC=$SHARE/xdg
+xdg_sum() { [ -f "$1" ] && sha256sum < "$1" | cut -d' ' -f1; }
+xdg_record() {   # xdg_record <nombre> [sha256]: anota lo que DJOS dejó en /etc/xdg (sin sha256: lo olvida)
+    [ "$DRY" = 1 ] && return 0
+    mkdir -p "$STATE"
+    { awk -v f="$1" '$2 != f' "$STATE/xdg-sums" 2> /dev/null
+      [ -z "${2:-}" ] || printf '%s %s\n' "$2" "$1"; } > "$STATE/xdg-sums.new" && mv -f "$STATE/xdg-sums.new" "$STATE/xdg-sums"
+}
+do_xdg() {
+    [ -d "$XDG_SRC" ] || return 0
+    local src f dst new cur old
+    for src in "$XDG_SRC"/*; do
+        [ -f "$src" ] || continue
+        f=${src##*/}; dst=/etc/xdg/$f
+        new=$(xdg_sum "$src")
+        old=$(awk -v f="$f" '$2 == f {print $1}' "$STATE/xdg-sums" 2> /dev/null)
+        # una versión anterior lo traía como archivo del paquete y alguien lo cambió: rpm lo guardó como .rpmsave
+        if [ ! -e "$dst" ] && [ -z "$old" ] && [ -f "$dst.rpmsave" ]; then
+            run mv -f "$dst.rpmsave" "$dst" && log "$dst: the changed copy was kept"
+        fi
+        cur=$(xdg_sum "$dst")
+        if [ "$cur" = "$new" ]; then
+            :   # ya es el de esta versión
+        elif [ ! -e "$dst" ] || [ "$cur" = "$old" ]; then
+            run install -D -m 0644 "$src" "$dst" || continue
+            have restorecon && run restorecon "$dst" 2> /dev/null
+        else
+            [ -n "$old" ] && log "$dst was changed: left as is"
+            xdg_record "$f"
+            continue
+        fi
+        xdg_record "$f" "$new"
+    done
+}
+undo_xdg() {
+    local sum f n=0
+    while read -r sum f; do
+        [ -n "$f" ] && [ "$(xdg_sum "/etc/xdg/$f")" = "$sum" ] || continue
+        run rm -f "/etc/xdg/$f" && n=$((n + 1))
+    done < <(cat "$STATE/xdg-sums" 2> /dev/null)
+    [ "$n" -gt 0 ] && log "KDE defaults of DJOS removed from /etc/xdg"
     return 0
 }
 undo_plymouth() {
@@ -369,72 +483,67 @@ request_initramfs() {
 }
 
 # --- Windows en el menú de arranque, si está en otro disco y GRUB todavía no lo tiene (os-prober suele ponerlo al
-#     instalar Fedora, pero no si el disco se conectó después o os-prober no lo vio)
-ESP_TYPE=c12a7328-f81f-11d2-ba4b-00a0c93ec93b
-windows_esp() {   # imprime la partición EFI que tiene el arranque de Windows
-    local dev pt mnt tmp found=""
-    for dev in $(lsblk -lnpo NAME,TYPE 2> /dev/null | awk '$2 == "part" {print $1}'); do
-        # el tipo de partición lo da udev; si no lo tiene, se lee de la tabla de particiones
-        pt=$(lsblk -dno PARTTYPE "$dev" 2> /dev/null)
-        [ -n "$pt" ] || pt=$(blkid -p -o value -s PART_ENTRY_TYPE "$dev" 2> /dev/null)
-        [ "${pt,,}" = "$ESP_TYPE" ] || continue
-        mnt=$(findmnt -nro TARGET --source "$dev" 2> /dev/null | head -1)
-        if [ -n "$mnt" ]; then
-            [ -f "$mnt/EFI/Microsoft/Boot/bootmgfw.efi" ] && { echo "$dev"; return 0; }
-            continue
-        fi
-        tmp=$(mktemp -d /run/djos-esp.XXXXXX) || continue
-        if mount -t vfat -o ro,nodev,nosuid,noexec "$dev" "$tmp" 2> /dev/null; then
-            [ -f "$tmp/EFI/Microsoft/Boot/bootmgfw.efi" ] && found=$dev
-            umount "$tmp"
-        fi
-        rmdir "$tmp"
-        [ -n "$found" ] && { echo "$found"; return 0; }
-    done
-    return 1
-}
-# grub2-mkconfig reescribe las opciones de todas las entradas con las de /etc/default/grub: solo se corre si no se
-# pierde nada
-grub_default_complete() {
-    local f=/etc/default/grub def a
-    [ -f "$f" ] || return 1
-    # shellcheck source=/dev/null
-    def=" $(. "$f" > /dev/null 2>&1; printf '%s %s' "${GRUB_CMDLINE_LINUX:-}" "${GRUB_CMDLINE_LINUX_DEFAULT:-}") "
-    for a in $(default_args); do
-        case "$a" in root=*|ro|rw|rootflags=*|BOOT_IMAGE=*|initrd=*|\$*) continue ;; esac
-        case "$def" in *" $a "*) ;; *) warn "'$a' is in the boot entries but not in $f"; return 1 ;; esac
-    done
-    return 0
-}
-mkconfig() {
-    grub_default_complete || { warn "GRUB menu not regenerated (see above)"; return 1; }
-    runq grub2-mkconfig -o "$GRUB_CFG" || { warn "grub2-mkconfig failed"; return 1; }
+#     instalar Fedora, pero no si el disco se conectó después o os-prober no lo vio). Va en /boot/grub2/custom.cfg,
+#     que el grub.cfg de Fedora lee al arrancar (41_custom). Así DJOS nunca corre grub2-mkconfig: ese corre os-prober,
+#     que monta para escritura los discos btrfs que encuentra (p. ej. uno de música), y reescribe las opciones de todas
+#     las entradas de arranque. Tampoco se monta nunca la partición de Windows: alcanza con la entrada "Windows Boot
+#     Manager" de la placa madre (efibootmgr), y GRUB busca el archivo al arrancar (si el disco no está, no aparece)
+CUSTOM_CFG=/boot/grub2/custom.cfg
+WIN_BEGIN="### BEGIN DJOS Windows"
+WIN_END="### END DJOS Windows"
+win_block() {   # con Windows conectado, el menú se muestra 3 segundos (Fedora lo esconde si cree que hay un solo sistema)
+    cat << 'EOF'
+### BEGIN DJOS Windows (lo agrega DJOS Optimizer y lo saca al desinstalarlo)
+if [ "${grub_platform}" = "efi" ]; then
+  insmod part_gpt
+  insmod fat
+  if search --no-floppy --file --set=djos_win /EFI/Microsoft/Boot/bootmgfw.efi; then
+    set timeout_style=menu
+    if [ "${timeout}" = "0" ]; then set timeout=3; fi
+    if [ "${timeout}" = "1" ]; then set timeout=3; fi
+    menuentry 'Windows' --class windows --class os --id djos-windows {
+      insmod part_gpt
+      insmod fat
+      insmod chain
+      search --no-floppy --file --set=root /EFI/Microsoft/Boot/bootmgfw.efi
+      chainloader /EFI/Microsoft/Boot/bootmgfw.efi
+    }
+  fi
+fi
+### END DJOS Windows
+EOF
 }
 do_windows() {
-    [ -d /sys/firmware/efi ] || return 0
-    have grub2-mkconfig && [ -f "$GRUB_CFG" ] && [ -f "$WIN_GEN" ] || return 0
-    # grub2-mkconfig solo corre los generadores ejecutables (una actualización del paquete puede dejarlo en 0644)
-    if [ -e "$STATE/windows-boot" ]; then
-        [ -x "$WIN_GEN" ] || run chmod 0755 "$WIN_GEN"
+    [ -d /sys/firmware/efi ] && [ -f "$GRUB_CFG" ] || return 0
+    grep -qF "$WIN_BEGIN" "$CUSTOM_CFG" 2> /dev/null && return 0   # ya está
+    # ¿GRUB ya lo tiene? (os-prober, o el de una versión anterior de DJOS): primero esto, sin tocar ningún disco
+    grep -qi 'bootmgfw\.efi' "$GRUB_CFG" 2> /dev/null && return 0
+    have efibootmgr && efibootmgr 2> /dev/null | grep -qi 'Windows Boot Manager' || return 0
+    # con BitLocker, Windows arrancado desde GRUB (pasa por shim) pide la clave de recuperación cada vez
+    if lsblk -rno FSTYPE 2> /dev/null | grep -qix bitlocker; then
+        log "Windows uses BitLocker: not added to the boot menu (from there it would ask for its recovery key every time). Start it from the PC's boot menu (F12 on Gigabyte boards)."
         return 0
     fi
-    local esp
-    esp=$(windows_esp) || return 0
-    # ¿GRUB ya lo tiene? (os-prober)
-    if awk '/^### BEGIN .*41_djos_windows/ {s = 1} !s {print} /^### END .*41_djos_windows/ {s = 0}' "$GRUB_CFG" \
-        | grep -qi 'bootmgfw\.efi'; then
-        return 0
-    fi
-    log "Windows found on $esp: adding it to the boot menu"
-    [ -x "$WIN_GEN" ] || run chmod 0755 "$WIN_GEN"
-    mark windows-boot "$esp"
-    mkconfig || { [ "$DRY" = 1 ] || rm -f "$STATE/windows-boot"; }
+    grep -q 'custom\.cfg' "$GRUB_CFG" || { log "the GRUB menu doesn't read custom.cfg: Windows not added to it"; return 0; }
+    log "Windows found: adding it to the boot menu"
+    [ "$DRY" = 1 ] && { echo "  would add a Windows entry to $CUSTOM_CFG"; return 0; }
+    # el custom.cfg de otro (si hay) queda igual con lo nuestro al final; si es nuevo, solo lo lee root (como grub.cfg)
+    { cat "$CUSTOM_CFG" 2> /dev/null; win_block; } > "$CUSTOM_CFG.djos-new" || { rm -f "$CUSTOM_CFG.djos-new"; return 0; }
+    [ -f "$CUSTOM_CFG" ] || chmod 0600 "$CUSTOM_CFG.djos-new"
+    replace_file "$CUSTOM_CFG" && mark windows-boot
 }
 undo_windows() {
-    [ -e "$STATE/windows-boot" ] || return 0
     run rm -f "$STATE/windows-boot"
-    have grub2-mkconfig && [ -f "$GRUB_CFG" ] && mkconfig && log "Windows entry removed from the boot menu"
-    return 0
+    grep -qF "$WIN_BEGIN" "$CUSTOM_CFG" 2> /dev/null || return 0
+    [ "$DRY" = 1 ] && { echo "  would remove the Windows entry from $CUSTOM_CFG"; return 0; }
+    awk -v b="$WIN_BEGIN" -v e="$WIN_END" 'index($0, b) == 1 {s = 1} !s {print} index($0, e) == 1 {s = 0}' \
+        "$CUSTOM_CFG" > "$CUSTOM_CFG.djos-new" || { rm -f "$CUSTOM_CFG.djos-new"; return 0; }
+    if grep -q '[^[:space:]]' "$CUSTOM_CFG.djos-new"; then
+        replace_file "$CUSTOM_CFG"
+    else   # solo tenía lo nuestro
+        rm -f "$CUSTOM_CFG.djos-new" "$CUSTOM_CFG"
+    fi
+    log "Windows entry removed from the boot menu"
 }
 
 # --- limpieza de paquetes
@@ -479,7 +588,13 @@ essential_hits() {   # essential_hits <lista de paquetes>: los esenciales que ap
     ess=" $(tr '\n' ' ' <<< "$ESSENTIAL") (blocked) "
     for p in $1; do
         case "$ess" in *" $p "*) echo "$p"; continue ;; esac
-        case "$p" in akmod-nvidia|kmod-nvidia*|xorg-x11-drv-nvidia*|nvidia-*) echo "$p" ;; esac
+        # también por familia (lo que arranca la PC, los discos y el driver de video), por si un Fedora nuevo arrastra
+        # algo esencial con otro nombre. NetworkManager-wwan y -bluetooth sí se pueden ir (con ModemManager)
+        case "$p" in
+            akmod-nvidia|kmod-nvidia*|xorg-x11-drv-nvidia*|nvidia-*|\
+            kernel|kernel-core|kernel-modules*|grub2-*|shim-*|efibootmgr|dracut*|systemd|systemd-*|glibc*|*-firmware|\
+            cryptsetup*|lvm2*|mdadm|btrfs-progs|selinux-policy*) echo "$p" ;;
+        esac
     done
 }
 # (las listas de paquetes se separan en palabras a propósito)
@@ -538,18 +653,138 @@ do_cleanup() {
 # --- NVIDIA: el aviso de la clave (mok-pending) al día
 do_nvidia_refresh() { [ -x /usr/libexec/djos/nvidia-setup ] && run /usr/libexec/djos/nvidia-setup --refresh; return 0; }
 
+# --- imágenes que app-update bajó al almacén de podman de root (Richie DJ, ~4 GB). Se borran solo las de DJOS: los
+#     repositorios de source.conf y apps.conf, y localhost/<nombre> (pruebas con una imagen local), también sus
+#     versiones viejas que quedaron sin nombre (las que alguna vez se llamaron así: NamesHistory); ninguna otra se toca
+repo_of() {   # repo_of <imagen>: el repositorio, sin transporte, etiqueta ni digest (nada si es un archivo o carpeta)
+    local r=${1#docker://}
+    r=${r#containers-storage:}
+    case "$r" in ''|oci:*|oci-archive:*|docker-archive:*|dir:*|docker-daemon:*) return 0 ;; esac
+    r=${r%%@*}
+    case "${r##*/}" in *:*) r=${r%:*} ;; esac
+    printf '%s\nlocalhost/%s\n' "$r" "${r##*/}"
+}
+our_repos() {
+    local f id img
+    {
+        # source.conf del paquete y el de /etc (que lo pisa), en un subshell
+        ( DJOS_APP_IMAGE=""; DJOS_OPTIMIZER_IMAGE=""
+          for f in "$SHARE/source.conf" /etc/djos/source.conf; do
+              # shellcheck source=/dev/null
+              [ -r "$f" ] && . "$f"
+          done
+          printf '%s\n' "$DJOS_APP_IMAGE" "$DJOS_OPTIMIZER_IMAGE" )
+        # apps.conf: <id> <imagen> <carpeta> <proceso>
+        while read -r id img _; do
+            case "$id" in ''|\#*) continue ;; esac
+            printf '%s\nlocalhost/%s\n' "$img" "$id"
+        done < <(cat /etc/djos/apps.conf 2> /dev/null)
+        echo localhost/richiedj
+    } | while read -r img; do repo_of "$img"; done | sort -u
+}
+undo_images() {
+    have podman && [ -d /var/lib/containers/storage ] || return 0   # sin almacén no se crea uno
+    local repos name id hist r refs=() old=()
+    repos=" $(our_repos | tr '\n' ' ') "
+    while read -r name; do
+        case "$name" in ''|*'<none>'*) continue ;; esac   # sin nombre: van abajo
+        case "$repos" in *" ${name%:*} "*) refs+=("$name") ;; esac
+    done < <(podman images --format '{{.Repository}}:{{.Tag}}' 2> /dev/null | sort -u)
+    while read -r id; do
+        [ -n "$id" ] || continue
+        hist=" $(podman image inspect --format '{{.NamesHistory}}' "$id" 2> /dev/null | tr -d '[]') "
+        for r in $repos; do
+            case "$hist" in *" $r:"*|*" $r@"*) old+=("$id"); break ;; esac
+        done
+    done < <(podman images -q --filter dangling=true 2> /dev/null | sort -u)
+    # -f: también el contenedor que app-update deja si lo cortaron a mitad (solo existe con nuestra imagen)
+    if [ ${#refs[@]} -gt 0 ] || [ ${#old[@]} -gt 0 ]; then
+        if runq podman rmi -f -i "${refs[@]}" "${old[@]}"; then
+            log "downloaded images removed: ${refs[*]}${old[*]:+ (and ${#old[@]} older versions)}"
+        else
+            warn "could not remove the images ${refs[*]} (sudo podman rmi ${refs[*]})"
+        fi
+    fi
+    return 0
+}
+
+# --- escritorio: con el paquete se van el tema DJOS, el ícono del menú y el widget de actualizaciones, y la barra de
+#     DJOS queda con íconos que faltan. Cada usuario que tenía el escritorio de DJOS recibe un autoarranque de una sola
+#     vez, suyo (lo escribe él, 0644; no es del paquete): en su próximo inicio de sesión de Plasma pone el escritorio
+#     de Fedora SOLO si el de DJOS sigue puesto (tema org.djos.desktop en kdeglobals o, sin tema elegido, la barra de
+#     DJOS) y DJOS no se volvió a instalar, y se borra. Si el usuario no vuelve a entrar, queda ahí sin hacer nada.
+RESTORE='djos-restore-desktop.desktop'
+djos_panel() { grep -qsx -e plugin=org.djos.updates -e icon=djos "$1/.config/plasma-org.kde.plasma.desktop-appletsrc"; }
+restore_entry() {   # restore_entry <carpeta de inicio>: el .desktop, rutas ya escritas (adentro sin $, comillas ni \)
+    local c=$1/.config lnf=/usr/share/plasma/look-and-feel self djos apply
+    self=$c/autostart/$RESTORE
+    djos="grep -qsx LookAndFeelPackage=org.djos.desktop $c/kdeglobals || { ! grep -qs ^LookAndFeelPackage= $c/kdeglobals && grep -qsx -e plugin=org.djos.updates -e icon=djos $c/plasma-org.kde.plasma.desktop-appletsrc; }"
+    apply="plasma-apply-lookandfeel -a org.fedoraproject.fedora.desktop --resetLayout || plasma-apply-lookandfeel -a org.kde.breeze.desktop --resetLayout"
+    cat << EOF
+[Desktop Entry]
+Type=Application
+Name=Restore the Fedora desktop
+Comment=Runs once after DJOS Optimizer was removed: gives back Fedora's look and panel
+OnlyShowIn=KDE;
+Exec=sh -c "if [ -e $lnf/org.djos.desktop ] || ! { $djos; }; then rm -f $self; elif gdbus wait --session --timeout 120 org.kde.plasmashell && sleep 3 && { $apply; }; then rm -f $self; fi"
+EOF
+}
+drop_restore() {   # drop_restore <usuario> <uid> <gid> <carpeta de inicio>
+    local u=$1 uid=$2 gid=$3 home=$4
+    case "$home" in
+        /*) case "$home" in *[!A-Za-z0-9._/-]*) home="" ;; esac ;;
+        *) home="" ;;
+    esac
+    if [ -z "$home" ]; then   # la ruta iría escrita en Exec: con caracteres raros, a mano
+        log "$u: to get Fedora's desktop back, run as $u: plasma-apply-lookandfeel -a org.fedoraproject.fedora.desktop --resetLayout"
+        return 0
+    fi
+    [ "$DRY" = 1 ] && { echo "  would add $home/.config/autostart/$RESTORE (Fedora's desktop at the next login)"; return 0; }
+    # como el usuario: el archivo es suyo y nada de su carpeta (enlaces) puede hacer escribir a root en otro lado
+    # shellcheck disable=SC2016 # los $ son del sh de adentro
+    restore_entry "$home" | setpriv --reuid="$uid" --regid="$gid" --init-groups -- sh -c \
+        'umask 022 && mkdir -p "$1" && cat > "$1/.$2.tmp" && mv -f "$1/.$2.tmp" "$1/$2"' sh "$home/.config/autostart" "$RESTORE" \
+        && log "$u: Fedora's desktop comes back at the next login"
+    return 0
+}
+
+# lo que DJOS dejó en la carpeta de cada usuario, borrado como el usuario (nada de su carpeta, ni un enlace, puede
+# hacer que root borre otra cosa): lo que desktop-setup anotó (aspecto ya aplicado, Richie DJ fijado, avisos: si DJOS
+# se vuelve a instalar, arranca de cero), la frecuencia y el buffer de DJOS Center > Audio (sin el ajuste de tiempo
+# real de DJOS, un buffer chico hace ruidos en Fedora común) y los autoarranques que DJOS apagó, si siguen tal cual
+user_cleanup() {   # user_cleanup <usuario> <uid> <gid> <carpeta>
+    if [ "$DRY" = 1 ]; then echo "  would remove DJOS's files in $4 (its state and the DJOS Center audio settings)"; return 0; fi
+    # shellcheck disable=SC2016 # los $ son del sh de adentro
+    setpriv --reuid="$2" --regid="$3" --init-groups -- sh -c '
+        rm -rf "$1/.local/state/djos" "$1/.config/djos"
+        rm -f "$1/.config/pipewire/pipewire.conf.d/60-djos-user.conf"
+        rmdir "$1/.config/pipewire/pipewire.conf.d" "$1/.config/pipewire" 2> /dev/null   # solo si quedaron vacías
+        for n in geoclue-demo-agent nvidia-settings-user; do
+            f="$1/.config/autostart/$n.desktop"
+            [ "$(cat "$f" 2> /dev/null)" = "$(printf "[Desktop Entry]\nType=Application\nName=%s\nHidden=true" "$n")" ] \
+                && rm -f "$f"
+        done
+        exit 0' sh "$4" || warn "$1: could not remove DJOS's files in $4"
+}
+
 do_remove_files() {
     run rm -f /etc/udev/rules.d/90-djos-controller-audio.rules
     live && run udevadm control --reload 2> /dev/null
     run rm -rf /etc/djos
-    run rm -rf "$STATE"
-    # lo que desktop-setup anotó en cada usuario (aspecto ya aplicado, Richie DJ fijado, avisos): si DJOS se vuelve
-    # a instalar, arranca de cero (si no, el aspecto no se aplica de nuevo)
-    local _u uid home
-    while IFS=: read -r _u _ uid _ _ home _; do
-        [ "$uid" -ge 1000 ] 2> /dev/null && [ "$uid" -lt 60000 ] && [ -d "$home/.local/state/djos" ] || continue
-        run rm -rf "$home/.local/state/djos"
+    run rm -rf "$STATE" /var/cache/djos
+    run rm -f /var/log/djos-bootstrap-upgrade.log /var/log/djos-bootstrap-install.log   # los de bootstrap/install.sh
+    # cada usuario: la vuelta al escritorio de Fedora (arriba) y lo que DJOS dejó en su carpeta
+    local u uid gid home
+    while IFS=: read -r u _ uid gid _ home _; do
+        [ "$uid" -ge 1000 ] 2> /dev/null && [ "$uid" -lt 60000 ] && [ -d "$home" ] || continue
+        if [ -d "$home/.local/state/djos" ] || djos_panel "$home"; then drop_restore "$u" "$uid" "$gid" "$home"; fi
+        user_cleanup "$u" "$uid" "$gid" "$home"
     done < /etc/passwd
+    # actualizaciones de Fedora que DJOS dejó bajadas sin instalar: dnf no se puede llamar desde esta desinstalación
+    if [ ! -e /system-update ] && grep -Eqx 'status = "?download-complete"?' \
+        /usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml 2> /dev/null; then
+        log "Fedora updates that DJOS downloaded (not installed) are still stored: 'sudo dnf5 offline clean' deletes them"
+    fi
     log "DJOS settings removed (Richie DJ stays in /opt/richiedj)"
 }
 
@@ -571,17 +806,18 @@ case "$cmd" in
     install)
         do_groups
         do_hostname
-        do_kargs
+        do_kargs install
         do_tuned install
         do_services_first
         do_plymouth install
         do_windows
+        do_xdg   # (en %post de la primera instalación ya se puede; al actualizar va en posttrans)
         do_nvidia_refresh
         mark setup-version "$(cat "$SHARE/VERSION" 2> /dev/null)"   # rpm -q da las dos versiones durante la actualización
         ;;
     upgrade)
-        do_groups
-        do_kargs
+        do_groups upgrade
+        do_kargs upgrade
         do_tuned upgrade
         do_plymouth upgrade
         do_windows
@@ -590,8 +826,12 @@ case "$cmd" in
         ;;
     posttrans) do_posttrans ;;
     remove)
-        # primero el perfil de energía (los perfiles djos se van con el paquete) y los argumentos del núcleo (antes
-        # de rearmar el menú de GRUB)
+        # primero se frena el actualizador (se espera a que termine lo que esté haciendo): si no, podría seguir
+        # escribiendo en /var/lib/djos o cambiando Richie DJ mientras se deshace todo
+        if live && [ "$DRY" = 0 ]; then
+            systemctl stop djos-update.timer djos-users.path djos-update.service djos-users.service > /dev/null 2>&1
+        fi
+        # el perfil de energía (los perfiles djos se van con el paquete) y los argumentos del núcleo
         undo_tuned
         undo_kargs
         undo_windows
@@ -599,6 +839,8 @@ case "$cmd" in
         undo_hostname
         undo_plymouth
         request_initramfs
+        undo_images   # antes de borrar /etc/djos (source.conf y apps.conf dicen cuáles son)
+        undo_xdg      # antes de borrar /var/lib/djos (ahí está qué dejó DJOS en /etc/xdg)
         do_remove_files
         ;;
     cleanup) do_cleanup; exit $? ;;

@@ -9,11 +9,15 @@
 # La imagen trae el programa en /app. Solo se baja lo que cambió (capas); si el programa está abierto o sonando no
 # se toca y queda listo para la próxima vuelta. El cambio es atómico: carpeta nueva y renombrar. Si todavía no está
 # instalado, se instala. El estado de cada uno va a /var/lib/djos/update-status.json (apps.<id>).
+# Salida: 0, o 5 si otro trabajo de actualización no terminó en una hora.
 set -u
+trap '' PIPE   # si se cierra la ventana que lo lanzó, sigue igual (ver update)
 mode=${1:-}
 LIBEXEC=/usr/libexec/djos
 STATE=${DJOS_STATE_DIR:-/var/lib/djos}
 SF=$STATE/update-status.json
+RUN=${DJOS_RUN_DIR:-/run/djos}
+LOCKDIR=$RUN/lock   # los mismos candados que update (solo de root)
 AUTH=${DJOS_AUTHFILE:-/etc/djos/registry-auth.json}
 conf=${DJOS_APPS_CONF:-/etc/djos/apps.conf}
 
@@ -62,28 +66,50 @@ in_use() {   # $1 carpeta, $2 nombre del proceso
 status() {   # status <estado> [versión]
     local v=${2-}
     [ -n "$v" ] || v=$(cat "$dir/.djos-version" 2> /dev/null)
-    install -d -m 0755 "$STATE"
+    install -d -m 0755 "$STATE" "$RUN" && mkdir -p "$LOCKDIR" && chmod 0700 "$LOCKDIR" || return 1
     (
-        flock 8
+        flock -w 60 8 || exit 1
         cur=$(cat "$SF" 2> /dev/null)
         jq -e 'type == "object"' <<< "$cur" > /dev/null 2>&1 || cur='{}'
         jq --arg id "$name" --arg name "$proc" --arg s "$1" --arg v "$v" --argjson t "$(date +%s)" \
             '.apps[$id] = {state: $s, version: $v, name: $name, time: $t}' <<< "$cur" > "$SF.tmp.$$" \
             && chmod 0644 "$SF.tmp.$$" && mv -f "$SF.tmp.$$" "$SF"
         rm -f "$SF.tmp.$$"
-    ) 8> "$STATE/.status.lock"
+    ) 8> "$LOCKDIR/status.lock"
 }
 
-# cambia a la versión ya bajada en <carpeta>.new (atómico) y deja el lanzador del menú y el ícono
+# la versión anterior (<carpeta>.old) se borra si nada corre desde ahí; si no, en la próxima vuelta
+drop_old() {
+    local e
+    [ -d "$dir.old" ] || return 0
+    for e in /proc/[0-9]*/exe; do
+        case "$(readlink "$e" 2> /dev/null)" in "$dir.old"/*) return 0 ;; esac
+    done
+    rm -rf "$dir.old"
+}
+
+# cambia a la versión ya bajada en <carpeta>.new y deja el lanzador del menú y el ícono. Nunca queda un momento sin
+# <carpeta>: las dos se intercambian de una vez (renameat2); y el cambio no se corta a la mitad (tampoco lo que corre
+# adentro: la señal ignorada se hereda), aunque update corte la búsqueda porque empezó un set
 swap() {
     local tmp=$dir.new f
-    rm -rf "$dir.old"
-    [ -d "$dir" ] && mv "$dir" "$dir.old"
-    if ! mv "$tmp" "$dir"; then
-        [ -d "$dir.old" ] && mv "$dir.old" "$dir"
-        return 1
+    trap '' TERM
+    drop_old
+    if [ -d "$dir.old" ]; then trap - TERM; return 1; fi   # algo corre todavía desde la versión anterior
+    if [ ! -d "$dir" ]; then
+        mv -T "$tmp" "$dir" || { trap - TERM; return 1; }
+    elif mv --exchange -T "$tmp" "$dir" 2> /dev/null; then
+        # en .new quedó la versión que se va: sin su marca (--swap-only nunca la vuelve a poner) y a .old
+        rm -f "$tmp/.djos-digest"
+        mv -T "$tmp" "$dir.old" || rm -rf "$tmp"
+    else   # un sistema de archivos sin intercambio: en dos pasos
+        mv -T "$dir" "$dir.old" || { trap - TERM; return 1; }
+        if ! mv -T "$tmp" "$dir"; then
+            mv -T "$dir.old" "$dir"
+            trap - TERM; return 1
+        fi
     fi
-    rm -rf "$dir.old"
+    drop_old
     # lanzador y ícono que trae el programa (share/applications, share/icons); las imágenes viejas apuntan a
     # /var/opt/<id> (DJOS atómico): se corrige a la carpeta de verdad
     if [ -d "$dir/share" ]; then
@@ -98,10 +124,23 @@ swap() {
         update-desktop-database -q /usr/local/share/applications 2> /dev/null
     fi
     restorecon -RF "$dir" 2> /dev/null
+    trap - TERM
     return 0
 }
 
+# un solo trabajo de actualización a la vez: update check ya tiene el candado (y lo avisa con DJOS_UPDATE_LOCKED);
+# corrido directo (bootstrap/install.sh) se espera a una búsqueda en curso, así nunca desarman dos en la misma carpeta
+if [ "${DJOS_UPDATE_LOCKED:-0}" != 1 ] && [ "$(id -u)" = 0 ]; then
+    install -d -m 0755 "$RUN" && mkdir -p "$LOCKDIR" && chmod 0700 "$LOCKDIR" && exec 9> "$LOCKDIR/update.lock" \
+        || { echo "Could not take the DJOS update lock."; exit 1; }
+    if ! flock -n 9; then
+        echo "Waiting for another DJOS update task to finish…"
+        flock -w 3600 9 || { echo "Another DJOS update task is still running: try again later."; exit 5; }
+    fi
+fi
+
 pulled=false
+repos=()   # repositorios de las imágenes de estos programas (para borrar después solo sus versiones viejas)
 while read -r name image dir proc <&3; do   # por el 3: lo de adentro no se come la lista
     case "$name" in ''|\#*) continue ;; esac
     [ -n "$image" ] && [ -n "$dir" ] || continue
@@ -152,9 +191,14 @@ while read -r name image dir proc <&3; do   # por el 3: lo de adentro no se come
             fi
             id=$(tail -n 1 <<< "$id")
             pulled=true
+            r=${image#docker://}; r=${r%%@*}
+            case "${r##*/}" in *:*) r=${r%:*} ;; esac
+            repos+=("$r")
         fi
         rm -rf "$tmp"; mkdir -p "$tmp"
-        if ! cid=$(podman create "$id" /app 2> /dev/null); then
+        # contenedor con nombre fijo: si una vuelta anterior se cortó a la mitad, el que quedó se borra acá
+        podman rm -f "djos-unpack-$name" > /dev/null 2>&1
+        if ! cid=$(podman create --name "djos-unpack-$name" "$id" /app 2> /dev/null); then
             rm -rf "$tmp"; echo "$proc: could not open the downloaded image"; status error; continue
         fi
         if ! podman export "$cid" | tar -x -C "$tmp" --strip-components=1 app; then
@@ -176,6 +220,16 @@ while read -r name image dir proc <&3; do   # por el 3: lo de adentro no se come
         echo "$proc: could not install the update"; status error
     fi
 done 3< <(apps_list)
-# lo que quedó sin nombre de bajadas anteriores (las capas de la versión actual quedan para bajar solo lo nuevo)
-$pulled && podman image prune -f > /dev/null 2>&1
+# las versiones viejas de estos programas, que quedaron sin nombre con cada bajada (las capas de la versión actual
+# quedan para bajar solo lo nuevo). Solo las que alguna vez se llamaron como uno de ellos (NamesHistory): ninguna
+# otra imagen de root se toca
+if $pulled; then
+    while read -r id; do
+        [ -n "$id" ] || continue
+        hist=" $(podman image inspect --format '{{.NamesHistory}}' "$id" 2> /dev/null | tr -d '[]') "
+        for r in "${repos[@]}"; do
+            case "$hist" in *" $r:"*|*" $r@"*) podman rmi -i "$id" > /dev/null 2>&1; break ;; esac
+        done
+    done < <(podman images -q --filter dangling=true 2> /dev/null | sort -u)
+fi
 exit 0

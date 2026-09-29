@@ -39,7 +39,10 @@ The spec's `%files` list is **generated from `system/`** at build time (so any f
 | Machine state | `/var/lib/djos/` (root, 0755; status files 0644) |
 | Machine config | `/etc/djos/` — `registry-auth.json` (0600 root, containers-auth format, written by `connect store`), `apps.conf` |
 | Richie DJ | `/opt/richiedj` (+ desktop file and icon copied to `/usr/local/share/{applications,icons}`) |
-| Kernel args | added with `grubby --update-kernel=ALL --args=...` and made persistent for future kernels (verify on F44 how: `/etc/kernel/cmdline` and/or `GRUB_CMDLINE_LINUX` in `/etc/default/grub`); removed on uninstall |
+| Kernel args | added with `grubby --update-kernel=ALL --args=...` and made persistent for future kernels (`/etc/kernel/cmdline` and `GRUB_CMDLINE_LINUX` in `/etc/default/grub`, both rewritten atomically); removed on uninstall. `/var/lib/djos/kargs-added` (what DJOS added, removed on uninstall), `kargs-applied` (what DJOS ever set: `upgrade` only adds args a new version introduces, never re-adds one the user removed), `kargs-replaced` (the user's previous value for the same key, e.g. `preempt=lazy`, restored on uninstall) |
+| Windows boot entry | `/boot/grub2/custom.cfg` (read at boot by Fedora's `41_custom`), between `### BEGIN/END DJOS Windows`, only when GRUB has no Windows entry and the firmware has a "Windows Boot Manager" entry (`efibootmgr`; the Windows ESP is never mounted) and no BitLocker volume is present. DJOS never runs `grub2-mkconfig` (it runs os-prober, which mounts foreign btrfs volumes read-write, and rewrites every BLS entry) |
+| KDE defaults | `/usr/share/djos/xdg/*` copied to `/etc/xdg/` in `posttrans` (not owned by the RPM: a future Fedora file with the same name can never cause an rpm file conflict); copied only if absent or unchanged since DJOS wrote it (sha256 in `/var/lib/djos/xdg-sums`); `remove` deletes only unchanged copies |
+| Locks | `/run/djos/lock/` (0700 root): `update.lock` (one update task at a time, never waited on without a limit), `status.lock` |
 
 Never hardcode the GitHub owner, a username, an e-mail, a real name, hardware serials or tokens anywhere in the
 repo (a pre-push hook blocks personal data). Tokens are never printed; they only travel through stdin/pipes.
@@ -48,39 +51,81 @@ repo (a pre-push hook blocks personal data). Tokens are never printed; they only
 
 - `/usr/libexec/djos/optimizer-setup install|upgrade|remove|posttrans|cleanup [--dry-run]` (root)
   - spec: `%post` → `install` when `$1 == 1`, `upgrade` when `$1 >= 2`; `%preun` → `remove` when `$1 == 0`;
-    `%posttrans` → `posttrans` (initramfs/plymouth work after all files are in place). `remove` only asks for the
-    initramfs rebuild (`/run/djos-optimizer-initramfs`); `%postun` (`$1 == 0`) runs `dracut -f --regenerate-all`
-    once the files are gone, so no DJOS file (theme, ntsync, audio options) stays inside the initramfs.
+    `%posttrans` → `posttrans` (KDE defaults to `/etc/xdg`, initramfs/plymouth work after all files are in place;
+    the initramfs is rebuilt when the DJOS theme or DJOS's modules-load.d/modprobe.d files change). `remove` only
+    asks for the initramfs rebuild (`/run/djos-optimizer-initramfs`); `%postun` (`$1 == 0`) runs
+    `dracut -f --regenerate-all` once the files are gone, so no DJOS file (theme, ntsync, audio options) stays inside
+    the initramfs.
+  - `remove` first stops `djos-update.timer`/`.service` and `djos-users.path`/`.service` (waits for a running
+    check), then undoes everything. It deletes DJOS's own images from root's podman storage (the `DJOS_APP_IMAGE` /
+    `DJOS_OPTIMIZER_IMAGE` repositories of `source.conf`, the images of `apps.conf` and their `localhost/<name>`,
+    plus their untagged older versions, recognised by `NamesHistory`); no other image is touched (no global
+    `podman image prune`). Each user with `~/.local/state/djos` or a DJOS panel gets
+    `~/.config/autostart/djos-restore-desktop.desktop` (runtime file owned by the user, never in the RPM): at the
+    next Plasma login it runs `plasma-apply-lookandfeel -a org.fedoraproject.fedora.desktop --resetLayout` only if
+    the DJOS look is still the current one and DJOS is not installed again, then deletes itself. As each user
+    (`setpriv`), it deletes `~/.local/state/djos`, `~/.config/djos`, DJOS Center's
+    `~/.config/pipewire/pipewire.conf.d/60-djos-user.conf` and the autostart stubs DJOS wrote (only if unchanged).
+    It also deletes `/var/cache/djos` and the bootstrap logs `/var/log/djos-bootstrap-*.log`.
   - must be idempotent; `install` also runs the per-machine setup that `firstboot` did (groups audio+pipewire,
-    hostname only if unset, tuned profile, kernel args, services, plymouth theme, Windows boot entry).
+    hostname only if unset, tuned profile, kernel args, services, plymouth theme, Windows boot entry). `upgrade`
+    never re-imposes what the user undid: kernel args (see the table above) and group memberships (users are
+    processed once, `/var/lib/djos/groups-done`).
   - `cleanup` removes packages/services a DJ PC doesn't need (safe list, with a guard that aborts if the
     transaction would remove anything essential); `bootstrap/install.sh` asks the user before calling it.
 - `/usr/libexec/djos/nvidia-setup [--status]` (root) — NVIDIA RTX via RPM Fusion `akmod-nvidia` +
   `xorg-x11-drv-nvidia-cuda`, Secure Boot MOK key via `kmodgenca -a` + `mokutil --import` with the fixed one-time
   password **`djosdjos`** (shown to the user), waits for the akmods build. `--status` prints JSON
   `{"gpu":bool,"driver":"<version>|","secure_boot":bool,"mok_pending":bool,"rpmfusion":bool}`. No NVIDIA GPU →
-  prints that and exits 0.
+  prints that and exits 0. Secure Boot off → no MOK import; our key (the contents of
+  `/etc/pki/akmods/certs/public_key.der`, never any other MOK key such as an old Universal Blue one) already
+  enrolled or already pending → no new import; other keys already pending → ours joins that request (the password
+  becomes `djosdjos` for all). Already set up → changes nothing and prints the status (or "restart to finish" when
+  the running module is older than the installed driver). A failed akmods build for the boot kernel → clear
+  message and exit 1. MokManager waits 60 s for a key (`mokutil --timeout 60`), then boots normally: an
+  unattended restart never hangs; the request is queued again by `djos-nvidia-check.service` at the next boot.
+  `--refresh` (boot, root) keeps `/var/lib/djos/mok-pending` current; `--offline-build` (root, run by
+  `djos-nvidia-offline.service`, `WantedBy=system-update.target`, work done in `ExecStop` after the offline
+  transaction and before the restart/power-off) builds the driver for the default kernel with akmods, which skips
+  building during offline updates: no 1-3 min build at the next power-on and no old module after a driver update.
 - `/usr/libexec/djos/connect` (user) — makes sure `gh` is logged in with scope `read:packages`
   (`gh auth login --web --git-protocol https --skip-ssh-key -s read:packages`, or `gh auth refresh -s read:packages`),
   then `gh auth token | pkexec /usr/libexec/djos/connect store`, which writes `/etc/djos/registry-auth.json`.
+  Known limit: that is gh's own token (gh always adds `repo`, `read:org`, `gist`); a read:packages-only token needs a
+  DJOS OAuth App (client_id) that does not exist yet.
 - `/usr/libexec/djos/update check|status|install-shutdown|install-reboot|release-upgrade` — the updater.
+  Exit codes: 0 ok, 1 error, 2 usage, 3 a set is playing (nothing done, or the check stopped), 4 nothing to do,
+  5 another update task is running. It ignores SIGPIPE (closing DJOS Center or restarting plasmashell never kills
+  a running check or install). One task at a time (`/run/djos/lock/update.lock`), never waiting without a limit.
   - `check` (root, run by `djos-update.timer` and by the "Check now" buttons via polkit): only if
     `gig-guard` says OK: prepares Fedora updates offline (download only, **not** triggered — nothing installs at
     boot unless the user asks), updates Flatpaks, runs `app-update` (Richie DJ, swapped only when closed), updates
     `djos-optimizer` itself from `DJOS_OPTIMIZER_IMAGE` when newer, checks for a new Fedora release (offered only
-    ≥ 28 days after release AND when RPM Fusion has akmod-nvidia for it). Writes `/var/lib/djos/update-status.json`.
+    ≥ 28 days after release AND when RPM Fusion has akmod-nvidia for it; when Bodhi gives no `released_on`, the
+    28 days count from the first day DJOS saw it released). Writes `/var/lib/djos/update-status.json`. If a set
+    starts during the check, the running download (dnf5, flatpak, podman) is stopped and the check exits 3 (it
+    resumes next time). On a metered connection (NetworkManager `Metered` 1 or 3) the timer's check downloads
+    nothing; "Check now" does. The self-update is dry-run first: it installs live only when it adds new packages;
+    if it would also upgrade installed ones (Qt, KF6, Mesa… in the running session) it waits (`optimizer.state`
+    `waiting`) until the Fedora updates are installed. It runs under `systemd-inhibit` (no power-off mid-way).
   - `install-shutdown` / `install-reboot` (root via polkit): apply the prepared offline update then power off /
-    restart (dnf5 offline).
+    restart (dnf5 offline). If another task holds the lock for 30 s it exits 5; `gig-guard` is checked again right
+    before `dnf5 offline reboot`. `release-upgrade` releases the lock while it waits for the user, and its prompt
+    expires after 15 min; without a terminal it stops after the download (installed later with Install & …). If the
+    download needs `--allowerasing` and that would remove `djos-optimizer` or the NVIDIA driver, it refuses.
   - `status` (user): prints the JSON.
 - `/var/lib/djos/update-status.json` (0644):
   `{"time":<epoch>,"system":{"state":"up-to-date|ready|checking|error|offline|not-connected","count":N,"error":""},
     "apps":{"richiedj":{"state":"up-to-date|updated|ready|waiting|unreachable|error","version":""}},
-    "optimizer":{"state":"...","installed":"x.y.z","available":""},
-    "release":{"available":"","ready":false}}`
+    "optimizer":{"state":"up-to-date|updated|ready|waiting|not-connected|unreachable|error","installed":"x.y.z","available":""},
+    "release":{"available":"","ready":false}}` — `status` reports `system.state` `error` when the last offline
+  installation did not finish (`transaction-incomplete`), and drops `release` once the PC runs that version.
 - `/usr/libexec/djos/gig-guard` — exit 0 = maintenance allowed, 1 = a set is playing (unchanged logic).
 - Test overrides (for the VM tests, never needed on a real PC): `DJOS_LOCAL_RPM=/path.rpm`,
   `DJOS_APP_SOURCE=<skopeo/podman transport, e.g. oci-archive:/x.tar>`, `DJOS_OPTIMIZER_SOURCE=...`,
-  `DJOS_SKIP_GITHUB=1`.
+  `DJOS_SKIP_GITHUB=1`, `DJOS_TEST_FORCE_NVIDIA=1` (`nvidia-setup`, also passed on by `bootstrap/install.sh`: acts
+  as if an NVIDIA card were present, so RPM Fusion + `akmod-nvidia` + `kmodgenca` + `mokutil` run in a VM; the
+  driver builds but cannot load. Services and notices don't see it unless it is set for them too).
 
 ## Delivery (private GitHub, no pasted tokens)
 
@@ -94,15 +139,30 @@ repo (a pre-push hook blocks personal data). Tokens are never printed; they only
   `bootstrap/install.sh` fetched from the private repo with `gh api`. The script: checks Fedora KDE ≥ 44 and not
   atomic → stores the registry auth → enables RPM Fusion free+nonfree → full `dnf upgrade --refresh` →
   installs `djos-optimizer` → `nvidia-setup` if an NVIDIA GPU is present → Richie DJ via `app-update` → asks
-  about `optimizer-setup cleanup` → tells the user to reboot (and the MOK steps with password `djosdjos`).
+  about `optimizer-setup cleanup` → tells the user to reboot (and the MOK steps with password `djosdjos`). The
+  upgrade and the `djos-optimizer` install run as transient system services (`systemd-run`, log in
+  `/var/log/djos-bootstrap-*.log` shown live, exit code in `/run/djos-bootstrap-*.rc`; not `--wait`, which hangs
+  when the transaction re-executes systemd): closing Konsole or a Plasma crash never cuts an RPM transaction.
+  Already installed but `/var/lib/djos/setup-version` missing (interrupted first install) → it runs
+  `optimizer-setup install` + `posttrans`. The update timers are enabled only when it installed DJOS.
+- The RPM is not signed yet: `dnf5 install` of the local RPM passes `--setopt=localpkg_gpgcheck=0` explicitly
+  (bootstrap and self-update), so a changed dnf default never breaks updates. CI refuses to overwrite
+  `$IMAGE:$VERSION` built from another commit: raise `packaging/VERSION` for every change that must reach PCs.
 
 ## Look (per-machine files + per-user setup)
 
 Own files only (never modify files owned by other packages): look-and-feel `org.djos.desktop`, `DJOS.colors`,
 own icon theme `Papirus-Dark-DJOS` (Inherits=Papirus-Dark, orange folders via symlinks), Inter/JetBrains Mono,
-wallpapers `DJOS` and `DJOS-Lock`, splash, plymouth theme `djos`, Konsole profile, `/etc/xdg/*rc` defaults as
-`%config(noreplace)`, KIOSK restrictions (NOT `kcm_updates` — on stock Fedora that page is the update UI), app menu
-hiding through `/etc/xdg/menus/applications-merged/` (no editing of other packages' .desktop files).
+wallpapers `DJOS` and `DJOS-Lock`, splash, plymouth theme `djos`, Konsole profile, `/etc/xdg/*rc` defaults (copied
+from `/usr/share/djos/xdg`, see the table above; the other `/etc` files have DJOS-only names and are
+`%config(noreplace)`), KIOSK restrictions (NOT `kcm_updates` — on stock Fedora that page is the update UI), app menu
+hiding through `/etc/xdg/menus/applications-merged/` (no editing of other packages' .desktop files). Login screen:
+`/usr/lib/plasmalogin/plasmalogin.conf.d/zz-djos.conf`. Discover's own notifications are off
+(`RequiredNotificationInterval[$i]=-1`: DJOS has its own notifier, and Discover would offer a new Fedora release on
+day one), and `/usr/share/polkit-1/rules.d/10-djos-release-gate.rules` denies PackageKit's `upgrade-system` and
+`trigger-offline-upgrade`: a new release comes only through DJOS Center (normal Discover updates are unchanged).
+`plymouth-quit.service` waits for `akmods.service` (drop-in): after a kernel update the boot splash stays, with
+akmods' "Building…" message, while the NVIDIA driver is rebuilt (plasmalogin doesn't take over the splash like GDM).
 Per-user: `djos-desktop.service` (user unit, enabled globally) runs `desktop-setup` once per version and
 `display-setup` (max refresh rate per monitor).
 

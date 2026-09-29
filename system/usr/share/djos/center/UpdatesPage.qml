@@ -53,6 +53,7 @@ PageBase {
         switch (o.state) {
         case "updated":       return "Just updated to " + o.installed
         case "ready":         return "Version " + o.available + " installs when nothing is playing"
+        case "waiting":       return "Version " + o.available + " installs after the Fedora updates (Install & restart)"
         case "not-connected": return "Connect GitHub to get DJOS updates"
         case "unreachable":   return "Can't check right now" + (o.error ? " (" + o.error + ")" : "")
         case "error":         return "The last update failed" + (o.error ? ": " + o.error : "")

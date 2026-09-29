@@ -90,7 +90,7 @@ PageBase {
             }
         }
         StatusRow {
-            iconName: "claude"
+            iconName: "utilities-terminal"
             title: "Claude Code"
             subtitle: "An AI assistant in the terminal that knows DJOS: ask it to install, fix or explain anything."
             QQC2.Button {

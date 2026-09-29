@@ -1,7 +1,8 @@
 #!/usr/bin/bash
 # DJOS Optimizer: aviso con botones cuando hay algo listo para instalar (lo corre djos-update-notify.timer, del
-# usuario). Callado en todo lo demás: nunca mientras suena un set, una vez por día como mucho para lo mismo.
-#   - actualizaciones de Fedora bajadas: "Install & shut down" / "Later"
+# usuario). Callado en todo lo demás: nunca mientras suena un set ni con Richie DJ abierto, una vez por día como mucho
+# para lo mismo.
+#   - actualizaciones de Fedora bajadas: "Install & shut down" (pide confirmación) / "Later"
 #   - versión nueva de Fedora recomendable (4 semanas después de salir): "Open DJOS Center" / "Later"
 set -u
 LIBEXEC=/usr/libexec/djos
@@ -9,6 +10,8 @@ mem=${XDG_STATE_HOME:-$HOME/.local/state}/djos/update-notified
 mkdir -p "${mem%/*}"
 
 [ -x "$LIBEXEC/gig-guard" ] && ! "$LIBEXEC/gig-guard" && exit 0   # está sonando un set
+# con Richie DJ abierto (preparando o por tocar), nada de avisos con botones encima: vuelve a mirar en una hora
+pgrep -x 'Richie DJ' > /dev/null && exit 0
 st=$("$LIBEXEC/update" status 2> /dev/null) || exit 0
 
 notify_once() {   # notify_once <clave> [período, formato de date]: 0 si en este período (día) todavía no se avisó
@@ -23,18 +26,32 @@ notify_once() {   # notify_once <clave> [período, formato de date]: 0 si en est
 sys=$(jq -r '.system.state' <<< "$st")
 count=$(jq -r '.system.count' <<< "$st")
 rel=$(jq -r 'if .release.ready and (.release.prepared | not) then .release.available else "" end' <<< "$st")
+prepared=$(jq -r '.release.prepared' <<< "$st")
+
+confirm_install() {   # un clic de más en el aviso no apaga la PC: se pregunta antes, como en el panel y en DJOS Center
+    local what="the updates (a few minutes)"
+    [ "$prepared" = true ] && what="Fedora $(jq -r '.release.available' <<< "$st") (20-40 minutes, don't turn it off)"
+    # (en los botones de kdialog "&" marca la tecla de acceso: "&&" es el signo)
+    kdialog --title "DJOS" --icon system-software-update --yes-label "Install && shut down" --no-label "Cancel" \
+        --yesno "Install and shut down now?
+
+Save your work and close Richie DJ. The PC restarts, installs $what and then shuts down." 2> /dev/null
+}
 
 if [ "$sys" = ready ] && notify_once "system"; then
-    if [ "$(jq -r '.release.prepared' <<< "$st")" = true ]; then
+    if [ "$prepared" = true ]; then
         title="Fedora $(jq -r '.release.available' <<< "$st") is ready to install"
         body="It installs the next time you shut down with DJOS (20-40 minutes, don't turn the PC off). Never during a set."
+    elif [ "$count" = 1 ]; then
+        title="1 update is ready"
+        body="It installs when you shut down with DJOS (a few minutes). Nothing installs by itself, never during a set."
     else
         title="$count updates are ready"
         body="They install when you shut down with DJOS (a few minutes). Nothing installs by itself, never during a set."
     fi
     ans=$(notify-send -a "DJOS" -i system-software-update -t 0 -w \
         --action=shutdown="Install & shut down" --action=later="Later" "$title" "$body" 2> /dev/null)
-    if [ "$ans" = shutdown ]; then
+    if [ "$ans" = shutdown ] && confirm_install; then
         out=$(pkexec "$LIBEXEC/update" install-shutdown 2>&1) || \
             notify-send -a "DJOS" -i dialog-warning "Nothing was installed" "$(tail -n 1 <<< "$out")"
     fi

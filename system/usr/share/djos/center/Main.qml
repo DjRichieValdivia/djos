@@ -66,7 +66,8 @@ Kirigami.ApplicationWindow {
                 try { win.updates = JSON.parse(output) } catch (e) { }
             } else if (tag === "check") {
                 win.checkingUpdates = false
-                if (code !== 0) win.updateMessage = win.failure(code, output)
+                // 5 = ya había una búsqueda en curso (la del timer): su resultado aparece solo
+                if (code !== 0 && code !== 5) win.updateMessage = win.failure(code, output)
                 win.refreshUpdates(); win.refreshSystem()
             } else if (tag === "install") {
                 win.installingUpdates = false
@@ -75,10 +76,11 @@ Kirigami.ApplicationWindow {
             }
         }
     }
-    // mientras el timer de DJOS busca por su cuenta, el estado se sigue de cerca
+    // el estado se sigue siempre (el timer de DJOS puede empezar a buscar con la ventana abierta: los botones de
+    // instalar se esconden mientras busca), y de cerca mientras busca por su cuenta
     Timer {
-        interval: 10000
-        running: win.updatesChecking && !win.checkingUpdates
+        interval: win.updatesChecking ? 10000 : 60000
+        running: !win.checkingUpdates
         repeat: true
         onTriggered: win.refreshUpdates()
     }

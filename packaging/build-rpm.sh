@@ -181,7 +181,10 @@ nil='%{nil}'
 tar -C "$work/stage" --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$sde" \
     -czf "$work/SOURCES/djos-optimizer-$ver.tar.gz" "djos-optimizer-$ver" || die "no se pudo armar el tar"
 
-inner_cmd=(bash "$src/packaging/build-rpm.sh" --inner "$work")
+# la fecha de los archivos del paquete: la del commit exacta. Sin esto rpm la toma del %changelog (el día, a las 0 UTC)
+# y dos versiones del mismo día traen los .qml con la misma fecha: Qt sigue usando su caché compilada (la de la versión
+# vieja) en la barra y en DJOS Center, porque la valida solo por la fecha del archivo
+inner_cmd=(env SOURCE_DATE_EPOCH="$sde" bash "$src/packaging/build-rpm.sh" --inner "$work")
 if [ -f /etc/fedora-release ] && { [ -e /run/.containerenv ] || [ -e /.dockerenv ]; }; then
     "${inner_cmd[@]}"; rc=$?
 elif command -v podman > /dev/null; then

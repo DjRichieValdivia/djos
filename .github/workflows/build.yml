@@ -68,17 +68,26 @@ jobs:
           cp "dist/djos-optimizer-$VERSION-1.noarch.rpm" "$ctx/rpm/djos-optimizer.noarch.rpm"
           chmod 0644 "$ctx/rpm/djos-optimizer.noarch.rpm"
           printf 'FROM scratch\nCOPY rpm/ /rpm/\n' > "$ctx/Containerfile"
+          tree=$(git rev-parse 'HEAD^{tree}')   # el contenido del commit (un merge sin cambios tiene el mismo)
           sudo podman build \
             --label "org.djos.version=$VERSION" \
+            --label "org.djos.tree=$tree" \
             --label "org.opencontainers.image.title=DJOS Optimizer" \
             --label "org.opencontainers.image.version=$VERSION" \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             -t "$IMAGE:$VERSION" "$ctx"
           printf '%s' "$TOKEN" | sudo podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          # la misma versión con otro contenido no le llega a nadie: las PC comparan la versión
-          if sudo skopeo inspect --no-tags "docker://$IMAGE:$VERSION" > /dev/null 2>&1; then
-            echo "::warning::$IMAGE:$VERSION already exists and is being replaced. Installed PCs only update when packaging/VERSION goes up."
+          # la misma versión con otro contenido no le llega a nadie (las PC comparan la versión): se frena. El mismo
+          # commit otra vez (workflow_dispatch) o un merge con el mismo contenido sí pueden
+          if old=$(sudo skopeo inspect --no-tags "docker://$IMAGE:$VERSION" 2> /dev/null); then
+            rev=$(jq -r '.Labels["org.opencontainers.image.revision"] // ""' <<< "$old")
+            otree=$(jq -r '.Labels["org.djos.tree"] // ""' <<< "$old")
+            if [ "$rev" != "$GITHUB_SHA" ] && [ "$otree" != "$tree" ]; then
+              echo "::error::$IMAGE:$VERSION was already published from other contents (${rev:-another commit}). Raise packaging/VERSION: installed PCs only update when it goes up."
+              sudo podman logout ghcr.io
+              exit 1
+            fi
           fi
           # gzip: bootstrap/install.sh abre las capas con tar
           sudo podman push --compression-format gzip "$IMAGE:$VERSION"

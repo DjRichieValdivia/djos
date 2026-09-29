@@ -1,0 +1,11 @@
+# DJOS Optimizer: Discover no instala nada por su cuenta. Sus "actualizaciones desatendidas" arrancan cuando el
+# teclado y el mouse quedan quietos un minuto, y una controladora MIDI no cuenta como actividad: podrían empezar en
+# medio de un set. DJOS las prepara solo cuando no suena nada y se instalan recién cuando el usuario elige
+# "Install & restart / shut down" (o "Update" en Discover). [$i] = fijo, el usuario no lo puede prender.
+# Tampoco avisa: DJOS tiene su propio aviso de actualizaciones, y el de Discover ofrece la versión nueva de Fedora el
+# mismo día que sale (DJOS la ofrece 4 semanas después y con el driver de NVIDIA listo). Con -1 Discover no muestra
+# ni el aviso de actualizaciones ni el de "Upgrade available" (DiscoverNotifier::checkTriggerTimes); el paso de
+# versión desde Discover lo cierra además /usr/share/polkit-1/rules.d/10-djos-release-gate.rules.
+[Global]
+UseUnattendedUpdates[$i]=false
+RequiredNotificationInterval[$i]=-1

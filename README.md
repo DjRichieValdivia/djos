@@ -61,9 +61,15 @@ gh api -H "Accept: application/vnd.github.raw" repos/OWNER/DJOS/contents/bootstr
 
 When it finishes, restart the PC.
 
-**NVIDIA with Secure Boot:** during that restart, a blue **Perform MOK management** screen appears. Choose
-**Enroll MOK**, then **Continue**, then **Yes**. Type the password `djosdjos` (the keyboard uses the US layout
-on this screen), then choose **Reboot**. This happens only once.
+**NVIDIA with Secure Boot:** during that restart, a blue screen says **Press any key to perform MOK
+management**. Press the space bar within a minute. The menu starts on **Continue boot**, so don't press Enter right
+away: use the arrow keys to choose **Enroll MOK**, then **Continue**, then **Yes**. Type the password `djosdjos`
+(the keyboard uses the US layout on this screen), then choose **Reboot**. This happens only once. If you miss it,
+the PC starts as usual after a minute and the blue screen comes back at the next restart.
+
+**Windows on another disk:** DJOS adds **Windows** to the boot menu if the menu doesn't have it yet. If Windows
+uses BitLocker, DJOS leaves it out (started from that menu, Windows would ask for its recovery key every time):
+start it with your PC's boot menu key instead (F12 on Gigabyte boards).
 
 ## Updates
 
@@ -76,7 +82,10 @@ Updates are automatic, and nothing ever runs while a set is playing:
 - **Richie DJ** updates when it's closed.
 - **DJOS Optimizer** updates itself when a new version is published.
 - A **new Fedora version** (for example, 45) is offered in DJOS Center four weeks after its release, and
-  only once RPM Fusion's NVIDIA driver supports it. It's never installed automatically.
+  only once RPM Fusion's NVIDIA driver supports it. It's never installed automatically. Discover doesn't offer it
+  (DJOS turns that off, together with Discover's own update notifications).
+- If a set starts while DJOS is downloading, the download stops and continues later. On a metered connection (a
+  phone hotspot) DJOS doesn't download by itself; **Check now** still does.
 
 You can also update from Konsole:
 
@@ -88,23 +97,34 @@ sudo dnf upgrade --refresh        # the normal Fedora update
 ## Uninstall
 
 ```bash
-sudo dnf remove djos-optimizer
+sudo dnf remove --no-autoremove djos-optimizer
 ```
 
 Then restart. This undoes everything DJOS changed:
 
 - deletes its files
-- removes its kernel options
-- restores Fedora's boot screen, power profiles and services
-- deletes the saved GitHub access (`/etc/djos`)
+- removes its kernel options (and gives back the value you had before for the same option, e.g. `preempt=`)
+- restores Fedora's boot screen, power profiles and services, and removes the Windows entry DJOS added to the
+  boot menu
+- deletes the saved GitHub access (`/etc/djos`) and the downloaded Richie DJ update data (about 4 GB)
+- deletes the sample rate and buffer you chose in DJOS Center (Fedora's audio defaults come back)
+- gives you back Fedora's desktop the next time you log in, if you still have the DJOS look
+
+`--no-autoremove` keeps the apps and plugins that came with DJOS (Ardour, Carla, Audacity, the LV2/VST3/CLAP
+plugins and the rest, about 115 packages), so your DAW and Carla sessions keep working. Without it
+(`sudo dnf remove djos-optimizer`), dnf removes them too; to keep only some, mark them as yours first, for example
+`sudo dnf mark user ardour9`.
 
 Some things stay after you uninstall:
 
 - **Richie DJ**, in `/opt/richiedj`.
-- **Apps you installed yourself.** dnf can also remove the apps and plugins that came with DJOS. To keep
-  one, mark it as yours before you uninstall, for example `sudo dnf mark user ardour9`.
+- **Your music disks**: the read-only entries marked `# djos-music` in `/etc/fstab` and their `/mnt/music-*`
+  folders. Delete those lines if you don't want them.
+- **Your user in the `audio` and `pipewire` groups.**
+- **Programs removed by the optional cleanup** during the install. Reinstall any of them with `sudo dnf install`.
+- **Fedora updates DJOS had downloaded but not installed.** `sudo dnf5 offline clean` deletes them.
 - **The NVIDIA driver and RPM Fusion.** They are normal Fedora packages.
-- **Your desktop's look.** The DJOS panel stays, with some icons missing. To get Fedora's desktop back, run this
+- **A global theme you picked yourself.** DJOS leaves it alone. If the panel still shows missing icons, run this
   as your user (or pick "Fedora" in System Settings → Colors & Themes → Global Theme and tick "Desktop and window
   layout"):
 

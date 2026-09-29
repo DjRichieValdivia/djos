@@ -60,15 +60,16 @@ PageBase {
                 readonly property var u: win.updates
                 readonly property bool releaseReady: !!(u.release && u.release.ready && !u.release.prepared)
                 iconName: win.updatesReady || releaseReady ? "update-high" : "update-none"
-                title: !u.connected ? "Connect GitHub"
-                     : win.updatesReady ? (u.release && u.release.prepared ? "Fedora " + u.release.available + " ready to install"
-                                                                          : u.system.count + " updates ready to install")
+                // lo listo para instalar (Fedora no necesita GitHub) va antes que el aviso de conectar GitHub
+                title: win.updatesReady ? (u.release && u.release.prepared ? "Fedora " + u.release.available + " ready to install"
+                                                                          : u.system.count + (u.system.count === 1 ? " update" : " updates") + " ready to install")
+                     : !u.connected ? "Connect GitHub"
                      : win.updatesChecking ? "Checking for updates…"
                      : releaseReady ? "Fedora " + u.release.available + " is available"
                      : u.system && u.system.state === "error" ? "The last check failed"
                      : u.time > 0 ? "Up to date" : "Not checked yet"
-                subtitle: !u.connected ? "Connect this PC to GitHub once to get Richie DJ and the DJOS updates"
-                        : win.updatesReady ? "Install them when you restart or shut down (from Updates)"
+                subtitle: win.updatesReady ? "Install them when you restart or shut down (from Updates)"
+                        : !u.connected ? "Connect this PC to GitHub once to get Richie DJ and the DJOS updates"
                         : "DJOS prepares updates by itself, never during a set, and installs them only when you choose"
                 warning: !u.connected || (u.system && u.system.state === "error")
                 QQC2.Button { text: "Open"; flat: true; onClicked: win.go("updates") }
@@ -82,7 +83,7 @@ PageBase {
                 warning: win.sys.nvidiaCard === true && !win.sys.nvidia
                 subtitle: !win.sys.nvidiaCard ? "Using the open-source driver"
                         : win.sys.nvidia ? "NVIDIA driver " + win.sys.nvidia + " is running"
-                        : win.sys.mokPending ? "Restart; on the blue screen choose Enroll MOK → Continue → Yes, type the password djosdjos and choose Reboot. Until then only one monitor works."
+                        : win.sys.mokPending ? "Restart; when the blue screen says \"Press any key\", press the space bar, then choose Enroll MOK → Continue → Yes, type the password djosdjos and choose Reboot. Until then only one monitor works."
                         : "The NVIDIA driver is not running. Restart once; if it keeps happening, run the DJOS Self-Test."
             }
         }

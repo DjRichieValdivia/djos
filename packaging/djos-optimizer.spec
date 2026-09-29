@@ -52,6 +52,9 @@ Requires:       kf6-kconfig
 Requires:       polkit
 Requires:       dnf5
 Requires:       gh
+# connect: 'gh auth login --clipboard' copia el código con wl-copy/wl-paste; vino con kde-connect y la limpieza se lo
+# llevaría (como dependencia, dnf ya no lo saca)
+Requires:       wl-clipboard
 Requires:       plymouth
 Requires:       plymouth-scripts
 # nuestros archivos son enlaces a estos: el tema de arranque djos usa two-step y las imágenes de spinner,

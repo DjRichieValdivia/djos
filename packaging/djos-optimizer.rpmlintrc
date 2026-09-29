@@ -14,5 +14,3 @@ addFilter("desktopfile-without-binary .* konsole")
 # enlaces a archivos de paquetes que pedimos con Requires (Papirus-Dark, plymouth-theme-spinner)
 addFilter("dangling-(relative-)?symlink /usr/share/icons/Papirus-Dark-DJOS/")
 addFilter("dangling-(relative-)?symlink /usr/share/plymouth/themes/djos/")
-# /etc va entero como %config(noreplace) (ARCHITECTURE.md); el script de grub.d tiene que ser ejecutable
-addFilter("executable-marked-as-config-file /etc/grub.d/")

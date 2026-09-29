@@ -7,13 +7,14 @@ set -u
 pause() { echo; read -r -p "Press Enter to close this window." _; }
 
 # discos donde está el sistema: los de /, /boot, /boot/efi, /home y /var (subiendo por LUKS, LVM o RAID hasta
-# el disco físico). findmnt -v: sin el "[/subvolumen]" de btrfs
+# el disco físico). findmnt -v: sin el "[/subvolumen]" de btrfs. lsblk -l: en lista (en árbol, el disco sale como
+# "└─/dev/nvme2n1" y nunca coincidía: se ofrecían las particiones de Fedora)
 system_disks() {
     local m src
     for m in / /boot /boot/efi /home /var; do
         src=$(findmnt -nvo SOURCE "$m" 2> /dev/null | head -1)
         case "$src" in /dev/*) ;; *) continue ;; esac
-        lsblk -nspo NAME,TYPE "$src" 2> /dev/null | awk '$2 == "disk" {print $1}'
+        lsblk -lnspo NAME,TYPE "$src" 2> /dev/null | awk '$2 == "disk" {print $1}'
     done | sort -u
 }
 # candidatos: particiones con un sistema de archivos conocido, de 2 GB o más, fuera de los discos del sistema.
@@ -47,11 +48,16 @@ if [ "${1:-}" = --root ]; then
         fs=$(blkid -s TYPE -o value "/dev/disk/by-uuid/$uuid" 2> /dev/null)
         dir="/mnt/music-$name"
         grep -q "^UUID=$uuid " /etc/fstab && { echo "Already set up: $dir"; continue; }
+        # solo lectura de verdad: montados "ro", ext4, xfs y btrfs igual reescriben su diario si el disco quedó sucio
+        # (un corte de luz, desenchufado sin expulsar); noload/norecovery/nologreplay lo evitan. NTFS (ntfs3), exFAT y
+        # FAT en solo lectura no escriben nada
         case "$fs" in
             ntfs|ntfs3) type=ntfs3; opts="ro,uid=$uidn,gid=$gidn,umask=022,windows_names" ;;
             exfat) type=exfat; opts="ro,uid=$uidn,gid=$gidn,umask=022" ;;
             vfat) type=vfat; opts="ro,uid=$uidn,gid=$gidn,umask=022" ;;
-            ext4|xfs|btrfs) type=$fs; opts="ro" ;;
+            ext4) type=ext4; opts="ro,noload" ;;
+            xfs) type=xfs; opts="ro,norecovery" ;;
+            btrfs) type=btrfs; opts="ro,rescue=nologreplay" ;;
             *) echo "Skipped (unsupported file system '$fs')"; continue ;;
         esac
         mkdir -p "$dir"

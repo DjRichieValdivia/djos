@@ -37,7 +37,8 @@ PlasmoidItem {
         switch (sysState) {
         case "ready":
             return st.release && st.release.prepared ? "Fedora " + st.release.available + " is downloaded, ready to install"
-                                                     : st.system.count + " updates downloaded, ready to install"
+                                                     : st.system.count + (st.system.count === 1 ? " update" : " updates")
+                                                       + " downloaded, ready to install"
         case "checking":   return "Checking for updates…"
         case "offline":    return "No internet connection"
         case "error":      return "The last check failed" + (st.system.error ? ": " + st.system.error : "")
@@ -175,7 +176,7 @@ PlasmoidItem {
                 }
             }
             ColumnLayout {
-                visible: root.confirm !== ""
+                visible: root.confirm !== "" && !root.checking   // si empezó a buscar, primero que termine
                 Layout.fillWidth: true
                 PlasmaComponents.Label {
                     Layout.fillWidth: true

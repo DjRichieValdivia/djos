@@ -12,6 +12,7 @@ CPUWeight=idle
 IOSchedulingClass=idle
 ExecCondition=/usr/libexec/djos/gig-guard
 ExecStart=/usr/libexec/djos/update check
-# 3 = empezó a sonar un set justo antes de arrancar: no es un error
-SuccessExitStatus=3
+# 3 = empezó a sonar un set (antes de arrancar o en medio: la búsqueda se corta); 5 = ya había otra búsqueda en curso
+# ("Check now"). Ninguno es un error
+SuccessExitStatus=3 5
 TimeoutStartSec=6h
