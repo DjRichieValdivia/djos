@@ -48,9 +48,9 @@ ask() {   # ask <pregunta>: 0 si contesta que sí (por defecto no)
     read -r -p "    $1 [y/N] " a < /dev/tty || return 1
     [[ $a == [yY]* ]]
 }
-has_scope() {
+has_scope() {   # read:packages (write:packages también sirve: incluye leer)
     gh api -i user 2> /dev/null | tr -d '\r' | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes: *//p' \
-        | tr ',' '\n' | sed 's/^ *//' | grep -qx 'read:packages'
+        | tr ',' '\n' | sed 's/^ *//' | grep -qxE '(read|write):packages'
 }
 # detached <nombre> <comando…>: corre el comando como root en un servicio aparte (systemd-run), no colgado de esta
 # ventana: si Konsole se cierra o la sesión de Plasma se cae en medio (la actualización cambia al propio Plasma), dnf

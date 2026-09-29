@@ -55,9 +55,9 @@ store() {
 # --- usuario: iniciar sesión con gh --------------------------------------------------------------------------------
 pause() { $interactive && { echo; read -r -p "Press Enter to close this window." _; }; }
 
-has_scope() {   # la sesión de gh tiene el permiso read:packages
+has_scope() {   # la sesión de gh tiene el permiso read:packages (write:packages también sirve: incluye leer)
     gh api -i user 2> /dev/null | tr -d '\r' | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes: *//p' \
-        | tr ',' '\n' | sed 's/^ *//' | grep -qx 'read:packages'
+        | tr ',' '\n' | sed 's/^ *//' | grep -qxE '(read|write):packages'
 }
 
 # ¿gh puede copiar el código solo? Tiene que tener --clipboard y con qué copiar en esta sesión: en Wayland wl-copy y
