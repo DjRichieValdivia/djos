@@ -61,14 +61,20 @@ has_scope() {   # read:packages (write:packages también sirve: incluye leer)
 detached() {
     local name=$1 log=/var/log/$1.log rcf=/run/$1.rc pidf=/run/$1.pid tailpid pid gone=0 rc
     shift
+    running() {   # ¿sigue trabajando? (su proceso en /proc; si el pid no se puede leer, lo que diga systemd)
+        [ ! -e "$rcf" ] || return 1
+        case "$pid" in ''|*[!0-9]*) systemctl -q is-active "$name.service" 2> /dev/null ;; *) [ -d "/proc/$pid" ] ;; esac
+    }
     pid=$(cat "$pidf" 2> /dev/null)
-    if [ -n "$pid" ] && [ ! -e "$rcf" ] && [ -d "/proc/$pid" ]; then
+    if running; then
         info "A previous run of this step is still working: waiting for it to finish first…"
-        while [ -d "/proc/$pid" ] && [ ! -e "$rcf" ]; do sleep 5; done
+        while running; do sleep 5; done
     fi
     sudo rm -f "$log" "$rcf" "$pidf"
+    # (--expand-environment=no: si no, systemd reemplaza los $ del comando antes de correrlo y "$$" llega como "$")
     # shellcheck disable=SC2016 # los $ son del sh de adentro
-    sudo systemd-run --quiet --collect --unit="$name" -p StandardOutput="append:$log" -p StandardError="append:$log" \
+    sudo systemd-run --quiet --collect --expand-environment=no --unit="$name" \
+        -p StandardOutput="append:$log" -p StandardError="append:$log" \
         -- sh -c 'echo $$ > "$1"; shift; "$@"; echo $? > "$0"' "$rcf" "$pidf" "$@" || return 1
     # en pantalla, sin lo que no significa nada para el usuario (en el log queda todo): lo que cuentan los scriptlets
     # de los paquetes (">>> …") y los avisos de systemd de que no pudo recargar las sesiones en medio de la
@@ -77,9 +83,9 @@ detached() {
         -e 'Transport endpoint is not connected') &
     tailpid=$!
     for _ in $(seq 1 30); do pid=$(cat "$pidf" 2> /dev/null); [ -n "$pid" ] && break; sleep 1; done
-    # hasta que deje el código; si el proceso ya no está y no lo dejó (lo cortaron), a los 30 s se da por fallado
+    # hasta que deje el código; si ya no trabaja y no lo dejó (lo cortaron), a los 30 s se da por fallado
     while [ ! -e "$rcf" ]; do
-        if [ -n "$pid" ] && [ -d "/proc/$pid" ]; then gone=0; else gone=$((gone + 1)); fi
+        if running; then gone=0; else gone=$((gone + 1)); fi
         [ "$gone" -ge 15 ] && break
         sleep 2
     done
