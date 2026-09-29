@@ -68,7 +68,8 @@ jobs:
           cp "dist/djos-optimizer-$VERSION-1.noarch.rpm" "$ctx/rpm/djos-optimizer.noarch.rpm"
           chmod 0644 "$ctx/rpm/djos-optimizer.noarch.rpm"
           printf 'FROM scratch\nCOPY rpm/ /rpm/\n' > "$ctx/Containerfile"
-          tree=$(git rev-parse 'HEAD^{tree}')   # el contenido del commit (un merge sin cambios tiene el mismo)
+          # lo que entra en el paquete (system/ y packaging/): un cambio en otra parte (bootstrap, README) no cuenta
+          tree=$(printf '%s %s' "$(git rev-parse HEAD:system)" "$(git rev-parse HEAD:packaging)" | sha1sum | cut -d' ' -f1)
           sudo podman build \
             --label "org.djos.version=$VERSION" \
             --label "org.djos.tree=$tree" \
