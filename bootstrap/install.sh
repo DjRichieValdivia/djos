@@ -55,28 +55,32 @@ has_scope() {   # read:packages (write:packages también sirve: incluye leer)
 # detached <nombre> <comando…>: corre el comando como root en un servicio aparte (systemd-run), no colgado de esta
 # ventana: si Konsole se cierra o la sesión de Plasma se cae en medio (la actualización cambia al propio Plasma), dnf
 # termina igual y la transacción no queda a medias. Lo que escribe se ve acá y queda en /var/log/<nombre>.log; el
-# código de salida lo deja en /run/<nombre>.rc. No se usa "systemd-run --wait": si la transacción actualiza systemd
-# (daemon-reexec), pierde el aviso de que terminó y se queda esperando para siempre
+# código de salida lo deja en /run/<nombre>.rc y su pid en /run/<nombre>.pid. No se usa "systemd-run --wait" ni se le
+# pregunta a systemd si sigue: cuando la transacción actualiza systemd (daemon-reexec) o el bus, systemd no contesta
+# por un rato y parecería que el paso se cortó (o se queda esperando para siempre). Se mira el proceso directo en /proc
 detached() {
-    local name=$1 log=/var/log/$1.log rcf=/run/$1.rc tailpid gone=0 rc
+    local name=$1 log=/var/log/$1.log rcf=/run/$1.rc pidf=/run/$1.pid tailpid pid gone=0 rc
     shift
-    if systemctl -q is-active "$name.service" 2> /dev/null; then
+    pid=$(cat "$pidf" 2> /dev/null)
+    if [ -n "$pid" ] && [ ! -e "$rcf" ] && [ -d "/proc/$pid" ]; then
         info "A previous run of this step is still working: waiting for it to finish first…"
-        while systemctl -q is-active "$name.service" 2> /dev/null; do sleep 5; done
+        while [ -d "/proc/$pid" ] && [ ! -e "$rcf" ]; do sleep 5; done
     fi
-    sudo rm -f "$log" "$rcf"
+    sudo rm -f "$log" "$rcf" "$pidf"
     # shellcheck disable=SC2016 # los $ son del sh de adentro
     sudo systemd-run --quiet --collect --unit="$name" -p StandardOutput="append:$log" -p StandardError="append:$log" \
-        -- sh -c '"$@"; echo $? > "$0"' "$rcf" "$@" || return 1
-    # (en pantalla sin dos avisos de los scriptlets de systemd que no significan nada acá: no pudo recargar las
-    # sesiones de usuario en medio de la transacción, y eso pasa igual al reiniciar; en el log quedan)
-    tail -n +1 -F "$log" 2> /dev/null > >(grep --line-buffered -v -e 'Failed to start transient service unit:' \
-        -e 'Failed to start jobs: Transport endpoint is not connected') &
+        -- sh -c 'echo $$ > "$1"; shift; "$@"; echo $? > "$0"' "$rcf" "$pidf" "$@" || return 1
+    # en pantalla, sin lo que no significa nada para el usuario (en el log queda todo): lo que cuentan los scriptlets
+    # de los paquetes (">>> …") y los avisos de systemd de que no pudo recargar las sesiones en medio de la
+    # transacción (pasa igual al reiniciar)
+    tail -n +1 -F "$log" 2> /dev/null > >(grep --line-buffered -v -e '^>>> ' -e 'Failed to start transient service unit:' \
+        -e 'Transport endpoint is not connected') &
     tailpid=$!
-    # hasta que deje el código; si la unidad desaparece sin dejarlo (la cortaron), a los 10 s se da por fallada
+    for _ in $(seq 1 30); do pid=$(cat "$pidf" 2> /dev/null); [ -n "$pid" ] && break; sleep 1; done
+    # hasta que deje el código; si el proceso ya no está y no lo dejó (lo cortaron), a los 30 s se da por fallado
     while [ ! -e "$rcf" ]; do
-        if systemctl -q is-active "$name.service" 2> /dev/null; then gone=0; else gone=$((gone + 1)); fi
-        [ "$gone" -ge 5 ] && break
+        if [ -n "$pid" ] && [ -d "/proc/$pid" ]; then gone=0; else gone=$((gone + 1)); fi
+        [ "$gone" -ge 15 ] && break
         sleep 2
     done
     sleep 2
