@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- DJOS: archivos (Dolphin), carpeta naranja como las de Papirus-Dark-DJOS, con una onda -->
+  <defs><linearGradient id="o" gradientUnits="userSpaceOnUse" x1="28" y1="28" x2="228" y2="228"><stop offset="0" stop-color="#FFA24A"/><stop offset="1" stop-color="#FF5A0A"/></linearGradient></defs>
+  <path d="M28 64 a16 16 0 0 1 16 -16 h52 l20 20 h96 a16 16 0 0 1 16 16 v12 H28 Z" fill="#c8520c"/>
+  <rect x="28" y="84" width="200" height="128" rx="16" fill="url(#o)"/>
+  <g stroke="#1a0e04" stroke-width="10" stroke-linecap="round" opacity="0.85">
+    <line x1="96" y1="138" x2="96" y2="158"/><line x1="116" y1="124" x2="116" y2="172"/>
+    <line x1="136" y1="132" x2="136" y2="164"/><line x1="156" y1="140" x2="156" y2="156"/>
+  </g>
+</svg>

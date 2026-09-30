@@ -30,26 +30,18 @@ PageBase {
         }
     }
 
-    function install(a) {
-        win.busyApp = a.name
-        page.message = ""
-        if (a.rpm)   // paquete de Fedora: PackageKit (sin contraseña para los administradores)
-            djos.run("app:" + a.name, ["pkcon", "install", "-y", "--noninteractive", a.rpm])
-        else if (a.pack)
-            djos.run("app:" + a.name, ["/usr/libexec/djos/flatpak-audio", "plugins"].concat(a.flatpaks))
-        else
-            djos.run("app:" + a.name, ["/usr/libexec/djos/flatpak-audio", "install", a.flatpak])
-    }
-    function remove(a) {
-        win.busyApp = a.name
-        page.message = ""
-        djos.run("app:" + a.name, ["/usr/libexec/djos/flatpak-audio", "remove"].concat(a.pack ? a.flatpaks : [a.flatpak]))
-    }
-    function open(a) {
-        if (a.native)
-            djos.launch(["kioclient", "exec", "/usr/share/applications/" + a.native])
-        else
-            djos.launch(["flatpak", "run", a.flatpak])
+    Kirigami.InlineMessage {
+        Layout.fillWidth: true
+        visible: true
+        type: Kirigami.MessageType.Information
+        text: "Not sure which one to use? Which App? lists them by task: cut a track, fix tags, record a set…"
+        actions: [
+            Kirigami.Action {
+                text: "Which App?"
+                icon.name: "help-hint"
+                onTriggered: win.go("guide")
+            }
+        ]
     }
 
     Kirigami.InlineMessage {
@@ -67,47 +59,7 @@ PageBase {
             title: modelData
             Repeater {
                 model: page.apps.filter(a => a.category === modelData)
-                delegate: StatusRow {
-                    required property var modelData
-                    iconName: modelData.icon
-                    title: modelData.name
-                    subtitle: modelData.desc
-
-                    QQC2.BusyIndicator {
-                        visible: win.busyApp === modelData.name
-                        running: visible
-                        implicitWidth: Kirigami.Units.iconSizes.medium
-                        implicitHeight: implicitWidth
-                    }
-                    QQC2.Label {
-                        visible: modelData.pack === true && modelData.installed && win.busyApp !== modelData.name
-                        text: "Installed"
-                        color: Kirigami.Theme.positiveTextColor
-                    }
-                    QQC2.Button {
-                        visible: modelData.installed && !modelData.pack && win.busyApp !== modelData.name
-                        icon.name: "media-playback-start"
-                        text: "Open"
-                        onClicked: page.open(modelData)
-                    }
-                    QQC2.Button {
-                        visible: !modelData.installed && !modelData.included && win.busyApp !== modelData.name
-                        enabled: win.busyApp === ""
-                        icon.name: "download"
-                        text: "Install"
-                        onClicked: page.install(modelData)
-                    }
-                    QQC2.ToolButton {
-                        visible: modelData.installed && !modelData.included && win.busyApp !== modelData.name
-                        enabled: win.busyApp === ""
-                        icon.name: "edit-delete"
-                        display: QQC2.AbstractButton.IconOnly
-                        text: "Remove"
-                        QQC2.ToolTip.text: "Remove " + modelData.name
-                        QQC2.ToolTip.visible: hovered
-                        onClicked: page.remove(modelData)
-                    }
-                }
+                delegate: AppRow { app: modelData }
             }
         }
     }

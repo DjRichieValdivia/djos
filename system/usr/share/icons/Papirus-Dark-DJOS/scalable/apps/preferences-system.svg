@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- DJOS: Configuración del sistema, tuerca naranja -->
+  <defs><linearGradient id="o" gradientUnits="userSpaceOnUse" x1="28" y1="28" x2="228" y2="228"><stop offset="0" stop-color="#FFA24A"/><stop offset="1" stop-color="#FF5A0A"/></linearGradient></defs>
+  <g transform="translate(128 128)">
+    <path fill="url(#o)" transform="translate(-128 -128)" fill-rule="evenodd"
+      d="M112 20 h32 l6 28 a84 84 0 0 1 20 8 l24 -16 l22 22 l-16 24 a84 84 0 0 1 8 20 l28 6 v32 l-28 6 a84 84 0 0 1 -8 20 l16 24 l-22 22 l-24 -16 a84 84 0 0 1 -20 8 l-6 28 h-32 l-6 -28 a84 84 0 0 1 -20 -8 l-24 16 l-22 -22 l16 -24 a84 84 0 0 1 -8 -20 l-28 -6 v-32 l28 -6 a84 84 0 0 1 8 -20 l-16 -24 l22 -22 l24 16 a84 84 0 0 1 20 -8 Z M128 92 a36 36 0 1 0 0.01 0 Z"/>
+  </g>
+</svg>

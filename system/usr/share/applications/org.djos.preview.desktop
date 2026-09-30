@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=DJOS Preview
+GenericName=Track Preview
+Comment=Listen to tracks instantly: Space plays, the arrows move, the whole waveform at a glance
+Icon=djospreview
+Exec=/usr/libexec/djos/preview %U
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+MimeType=audio/mpeg;audio/mp3;audio/x-mp3;audio/flac;audio/x-flac;audio/mp4;audio/x-m4a;audio/aac;audio/wav;audio/x-wav;audio/vnd.wave;audio/aiff;audio/x-aiff;audio/ogg;audio/x-vorbis+ogg;audio/opus;audio/x-opus+ogg;
+Keywords=preview;listen;music;tracks;waveform;player;dj;crate;
+StartupNotify=true

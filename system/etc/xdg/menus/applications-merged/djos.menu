@@ -295,4 +295,162 @@
 			</Exclude>
 		</Menu>
 	</Menu>
+	<!--
+	  DJOS 2.2: el menú empieza por la música. DJ, Produce, Edit & Tag y Record & Stream reúnen las apps de DJ y
+	  producción (las que trae DJOS y las que DJOS Center instala desde Flathub; si una no está, no aparece) y salen
+	  de "Multimedia", donde quedan los reproductores de video y audio. Education y Science de Fedora KDE solo traen
+	  LibreOffice Math (sigue en Office): no se muestran. Los juegos que trae Fedora KDE salen de Games (los que instale
+	  el usuario siguen apareciendo). Nada se desinstala: todo se sigue encontrando con la búsqueda.
+	-->
+	<Layout>
+		<Menuname>DJ</Menuname>
+		<Menuname>Produce</Menuname>
+		<Menuname>Edit and Tag</Menuname>
+		<Menuname>Record and Stream</Menuname>
+		<Merge type="menus"/>
+		<Merge type="files"/>
+	</Layout>
+	<Menu>
+		<Name>DJ</Name>
+		<Directory>djos-dj.directory</Directory>
+		<Include>
+			<Filename>richiedj.desktop</Filename>
+			<Filename>org.djos.preview.desktop</Filename>
+			<Filename>org.mixxx.Mixxx.desktop</Filename>
+			<Filename>djos-selftest.desktop</Filename>
+			<Filename>djos-setup-music-disk.desktop</Filename>
+		</Include>
+	</Menu>
+	<Menu>
+		<Name>Produce</Name>
+		<Directory>djos-produce.directory</Directory>
+		<Include>
+			<Filename>ardour9.desktop</Filename>
+			<Filename>org.ardour.Ardour.desktop</Filename>
+			<Filename>com.bitwig.BitwigStudio.desktop</Filename>
+			<Filename>fm.reaper.Reaper.desktop</Filename>
+			<Filename>io.lmms.LMMS.desktop</Filename>
+			<Filename>org.hydrogenmusic.Hydrogen.desktop</Filename>
+			<Filename>carla.desktop</Filename>
+			<Filename>calf.desktop</Filename>
+			<Filename>org.musescore.MuseScore.desktop</Filename>
+			<Filename>org.rncbc.qpwgraph.desktop</Filename>
+		</Include>
+	</Menu>
+	<Menu>
+		<Name>Edit and Tag</Name>
+		<Directory>djos-edit.directory</Directory>
+		<Include>
+			<Filename>no.mifi.losslesscut.desktop</Filename>
+			<Filename>audacity.desktop</Filename>
+			<Filename>puddletag.desktop</Filename>
+			<Filename>org.kde.kid3.desktop</Filename>
+			<Filename>org.kde.kid3-qt.desktop</Filename>
+			<Filename>org.musicbrainz.Picard.desktop</Filename>
+			<Filename>soundconverter.desktop</Filename>
+			<Filename>sonic-visualiser.desktop</Filename>
+			<Filename>cc.spek.Spek.desktop</Filename>
+		</Include>
+	</Menu>
+	<Menu>
+		<Name>Record and Stream</Name>
+		<Directory>djos-record.directory</Directory>
+		<Include>
+			<Filename>com.obsproject.Studio.desktop</Filename>
+			<Filename>org.kde.kdenlive.desktop</Filename>
+		</Include>
+	</Menu>
+	<Menu>
+		<Name>Multimedia</Name>
+		<Exclude>
+			<Filename>richiedj.desktop</Filename>
+			<Filename>org.djos.preview.desktop</Filename>
+			<Filename>org.mixxx.Mixxx.desktop</Filename>
+			<Filename>ardour9.desktop</Filename>
+			<Filename>org.ardour.Ardour.desktop</Filename>
+			<Filename>com.bitwig.BitwigStudio.desktop</Filename>
+			<Filename>fm.reaper.Reaper.desktop</Filename>
+			<Filename>io.lmms.LMMS.desktop</Filename>
+			<Filename>org.hydrogenmusic.Hydrogen.desktop</Filename>
+			<Filename>carla.desktop</Filename>
+			<Filename>calf.desktop</Filename>
+			<Filename>org.musescore.MuseScore.desktop</Filename>
+			<Filename>org.rncbc.qpwgraph.desktop</Filename>
+			<Filename>no.mifi.losslesscut.desktop</Filename>
+			<Filename>audacity.desktop</Filename>
+			<Filename>puddletag.desktop</Filename>
+			<Filename>org.kde.kid3.desktop</Filename>
+			<Filename>org.kde.kid3-qt.desktop</Filename>
+			<Filename>org.musicbrainz.Picard.desktop</Filename>
+			<Filename>soundconverter.desktop</Filename>
+			<Filename>sonic-visualiser.desktop</Filename>
+			<Filename>cc.spek.Spek.desktop</Filename>
+			<Filename>com.obsproject.Studio.desktop</Filename>
+			<Filename>org.kde.kdenlive.desktop</Filename>
+		</Exclude>
+	</Menu>
+	<Menu>
+		<Name>Education</Name>
+		<Deleted/>
+	</Menu>
+	<Menu>
+		<Name>Science</Name>
+		<Deleted/>
+	</Menu>
+	<Menu>
+		<Name>Games</Name>
+		<Exclude>
+			<Filename>org.kde.kmahjongg.desktop</Filename>
+			<Filename>org.kde.kmines.desktop</Filename>
+			<Filename>org.kde.kpat.desktop</Filename>
+		</Exclude>
+		<Menu>
+			<Name>Arcade</Name>
+			<Exclude>
+				<Filename>org.kde.kmahjongg.desktop</Filename>
+				<Filename>org.kde.kmines.desktop</Filename>
+				<Filename>org.kde.kpat.desktop</Filename>
+			</Exclude>
+		</Menu>
+		<Menu>
+			<Name>Board</Name>
+			<Exclude>
+				<Filename>org.kde.kmahjongg.desktop</Filename>
+				<Filename>org.kde.kmines.desktop</Filename>
+				<Filename>org.kde.kpat.desktop</Filename>
+			</Exclude>
+		</Menu>
+		<Menu>
+			<Name>Card</Name>
+			<Exclude>
+				<Filename>org.kde.kmahjongg.desktop</Filename>
+				<Filename>org.kde.kmines.desktop</Filename>
+				<Filename>org.kde.kpat.desktop</Filename>
+			</Exclude>
+		</Menu>
+		<Menu>
+			<Name>Kidsgames</Name>
+			<Exclude>
+				<Filename>org.kde.kmahjongg.desktop</Filename>
+				<Filename>org.kde.kmines.desktop</Filename>
+				<Filename>org.kde.kpat.desktop</Filename>
+			</Exclude>
+		</Menu>
+		<Menu>
+			<Name>TacticStrategy</Name>
+			<Exclude>
+				<Filename>org.kde.kmahjongg.desktop</Filename>
+				<Filename>org.kde.kmines.desktop</Filename>
+				<Filename>org.kde.kpat.desktop</Filename>
+			</Exclude>
+		</Menu>
+		<Menu>
+			<Name>Logic</Name>
+			<Exclude>
+				<Filename>org.kde.kmahjongg.desktop</Filename>
+				<Filename>org.kde.kmines.desktop</Filename>
+				<Filename>org.kde.kpat.desktop</Filename>
+			</Exclude>
+		</Menu>
+	</Menu>
 </Menu>

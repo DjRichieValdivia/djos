@@ -756,9 +756,13 @@ user_cleanup() {   # user_cleanup <usuario> <uid> <gid> <carpeta>
     if [ "$DRY" = 1 ]; then echo "  would remove DJOS's files in $4 (its state and the DJOS Center audio settings)"; return 0; fi
     # shellcheck disable=SC2016 # los $ son del sh de adentro
     setpriv --reuid="$2" --regid="$3" --init-groups -- sh -c '
-        rm -rf "$1/.local/state/djos" "$1/.config/djos"
+        rm -rf "$1/.local/state/djos" "$1/.config/djos" "$1/.cache/djos-preview"
         rm -f "$1/.config/pipewire/pipewire.conf.d/60-djos-user.conf"
         rmdir "$1/.config/pipewire/pipewire.conf.d" "$1/.config/pipewire" 2> /dev/null   # solo si quedaron vacías
+        # la vista de detalles de Dolphin que puso desktop-setup (si sigue tal cual)
+        d="$1/.local/share/dolphin/view_properties/global/.directory"
+        [ "$(cat "$d" 2> /dev/null)" = "$(printf "[Dolphin]\nVersion=4\nViewMode=1\nVisibleRoles=Details_text,Details_size,Details_modificationtime")" ] \
+            && rm -f "$d"
         for n in geoclue-demo-agent nvidia-settings-user; do
             f="$1/.config/autostart/$n.desktop"
             [ "$(cat "$f" 2> /dev/null)" = "$(printf "[Desktop Entry]\nType=Application\nName=%s\nHidden=true" "$n")" ] \

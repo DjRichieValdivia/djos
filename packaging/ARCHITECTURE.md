@@ -163,7 +163,10 @@ own icon theme `Papirus-Dark-DJOS` (Inherits=Papirus-Dark, orange folders via sy
 wallpapers `DJOS` and `DJOS-Lock`, splash, plymouth theme `djos`, Konsole profile, `/etc/xdg/*rc` defaults (copied
 from `/usr/share/djos/xdg`, see the table above; the other `/etc` files have DJOS-only names and are
 `%config(noreplace)`), KIOSK restrictions (NOT `kcm_updates` — on stock Fedora that page is the update UI), app menu
-hiding through `/etc/xdg/menus/applications-merged/` (no editing of other packages' .desktop files). Login screen:
+hiding and the DJ-first menu (DJ, Produce, Edit and Tag, Record and Stream first, `/usr/share/desktop-directories/
+djos-*.directory`; Education and Science, which only hold LibreOffice Math, hidden; Fedora KDE's three games out of
+Games) through `/etc/xdg/menus/applications-merged/djos.menu` (no editing of other packages' .desktop files). Own app
+icons in `Papirus-Dark-DJOS/scalable/apps` (Dolphin, Discover, System Settings in orange). Login screen:
 `/usr/lib/plasmalogin/plasmalogin.conf.d/zz-djos.conf`. Discover's own notifications are off
 (`RequiredNotificationInterval[$i]=-1`: DJOS has its own notifier, and Discover would offer a new Fedora release on
 day one), and `/usr/share/polkit-1/rules.d/10-djos-release-gate.rules` denies PackageKit's `upgrade-system` and
@@ -171,7 +174,26 @@ day one), and `/usr/share/polkit-1/rules.d/10-djos-release-gate.rules` denies Pa
 `plymouth-quit.service` waits for `akmods.service` (drop-in): after a kernel update the boot splash stays, with
 akmods' "Building…" message, while the NVIDIA driver is rebuilt (plasmalogin doesn't take over the splash like GDM).
 Per-user: `djos-desktop.service` (user unit, enabled globally) runs `desktop-setup` once per version and
-`display-setup` (max refresh rate per monitor).
+`display-setup` (max refresh rate per monitor). `desktop-setup` also writes Dolphin's default view properties once
+(`~/.local/share/dolphin/view_properties/global/.directory`: details view, size, date; only if the user has none;
+`remove` deletes it if unchanged).
+
+## DJOS Preview (`/usr/libexec/djos/preview`, user)
+
+PySide6 (QtWidgets + QtMultimedia) track previewer: `preview [file|folder…]` (launcher `org.djos.preview.desktop`,
+"Open with" for audio types, Dolphin service menu `/usr/share/kio/servicemenus/djos-preview.desktop` for audio files
+and folders; a single window: a second launch hands its paths to the open one over a QLocalSocket). Audio: `ffmpeg`
+decodes to 48 kHz s16 stereo in memory (thread, `SCHED_BATCH`, `ionice -c2 -n7`; at most 6 min ahead, long mixes
+drop what already played), played by a `QAudioSink` in pull mode through PulseAudio-on-PipeWire
+(`QT_AUDIO_BACKEND=pulseaudio`, 250 ms buffer: node.latency 1024/48000, so it never lowers the graph quantum below
+Richie DJ's or a DAW's). Pause releases the stream. `gig-guard` (every 2.5 s): while a set plays nothing starts by
+itself and no waveforms are precomputed; if a set starts, playback stops. Waveform: ffmpeg splits a 22 kHz mono
+mix into 3 bands (<200 Hz, 200-2500 Hz, >2500 Hz), rectifies and resamples the envelope to 1050 Hz (`SCHED_IDLE`,
+`ionice -c3`); 1600 columns per band cached in `~/.cache/djos-preview` (deleted by `remove`); drawn progressively
+while it's computed; the rest of the folder is precomputed in the background. Tags: mutagen (recommended), else
+ffprobe; untagged files use "NN Artist - Title" from the name. Keys: Space, Up/Down, Left/Right (Shift ×6), 1-9,
+Home, click on the waveform, Esc. A global shortcut from Dolphin is not possible (a shortcut can't read Dolphin's
+selection, and Dolphin can't bind keys to service-menu actions).
 
 ## Real-time audio (same as DJOS)
 

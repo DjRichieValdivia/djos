@@ -111,6 +111,20 @@ PY
     return 0
 }
 
+# Dolphin (una vez por usuario, DJOS 2.2): las carpetas se abren en vista de detalles con tamaño y fecha (una carpeta
+# de música se lee como una lista, no como íconos grandes). Es el valor por defecto de Dolphin para las carpetas que
+# todavía no tienen uno propio; si el usuario ya eligió uno (el archivo existe), se respeta. Las columnas de título,
+# artista o duración necesitarían el indexador Baloo, que DJOS deja apagado (le compite al audio en pleno set)
+dolphin_details() {
+    local f=$data/dolphin/view_properties/global/.directory
+    [ -e "$state/dolphin-details-v1" ] && return 0
+    if [ ! -e "$f" ]; then
+        mkdir -p "${f%/*}" && printf '[Dolphin]\nVersion=4\nViewMode=1\nVisibleRoles=Details_text,Details_size,Details_modificationtime\n' > "$f"
+    fi
+    touch "$state/dolphin-details-v1"
+}
+dolphin_details
+
 # Richie DJ llegó después del escritorio: a la barra (y al menú, por si Plasma lo sacó de los favoritos)
 pin_richiedj() {
     plasma_script /usr/share/djos/pin-richiedj.js || return 1

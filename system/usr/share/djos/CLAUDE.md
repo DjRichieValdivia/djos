@@ -35,9 +35,13 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
 ## Installing software
 - GUI apps: **Discover**, `flatpak install flathub <id>`, or `sudo dnf install <pkg>`.
 - Curated DJ/production apps and plugin packs: **DJOS Center > Apps & Plugins** (`/usr/libexec/djos/flatpak-audio`;
-  Flathub DAWs get the LinuxAudio plugin extensions of their runtime branch). Native (recommended by the package):
-  Ardour, Carla, Audacity, Kid3, Picard, SoundConverter, Sonic Visualiser, Haruna, qpwgraph and LV2/VST3/CLAP
-  plugins (LSP, x42, Calf, ZAM, ZynAddSubFX).
+  Flathub DAWs get the LinuxAudio plugin extensions of their runtime branch; `apps.json` has a "use it when" line
+  per app and `guide.json` the "Which App?" page, by task). Native (recommended by the package): Ardour, Carla,
+  Audacity, Puddletag, Kid3, Picard, SoundConverter, Sonic Visualiser, Haruna, qpwgraph and LV2/VST3/CLAP plugins
+  (LSP, x42, Calf, ZAM, ZynAddSubFX). One click from Flathub: LosslessCut (lossless MP3 cut/split/join), Mixxx,
+  Bitwig, REAPER, OBS Studio and more.
+- DJOS Preview (`/usr/libexec/djos/preview`, Dolphin right-click > Preview (DJOS)): instant track preview with a
+  3-band waveform; plays on the desktop output at low priority and never auto-starts during a set.
 - Other distros/tools: `toolbox` or `distrobox` if the user installs them.
 
 ## Audio design (keep it this way)

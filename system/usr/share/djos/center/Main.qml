@@ -32,6 +32,7 @@ Kirigami.ApplicationWindow {
         { key: "performance", title: "Performance", icon: "speedometer", file: "PerformancePage.qml" },
         { key: "updates", title: "Updates", icon: "update-none", file: "UpdatesPage.qml" },
         { key: "apps", title: "Apps & Plugins", icon: "plasmadiscover", file: "AppsPage.qml" },
+        { key: "guide", title: "Which App?", icon: "help-hint", file: "GuidePage.qml" },
         { key: "disks", title: "Music Disks", icon: "drive-harddisk", file: "DisksPage.qml" },
         { key: "about", title: "About", icon: "help-about", file: "AboutPage.qml" }
     ]
@@ -50,6 +51,26 @@ Kirigami.ApplicationWindow {
     function installUpdates(how) {   // "install-shutdown" o "install-reboot": la PC se reinicia
         installingUpdates = true; updateMessage = ""
         djos.run("install", ["pkexec", "/usr/libexec/djos/update", how])
+    }
+    // apps del catálogo (Apps & Plugins y Which App?): el resultado llega por jobDone("app:<nombre>")
+    function installApp(a) {
+        busyApp = a.name
+        if (a.rpm)   // paquete de Fedora: PackageKit (sin contraseña para los administradores)
+            djos.run("app:" + a.name, ["pkcon", "install", "-y", "--noninteractive", a.rpm])
+        else if (a.pack)
+            djos.run("app:" + a.name, ["/usr/libexec/djos/flatpak-audio", "plugins"].concat(a.flatpaks))
+        else
+            djos.run("app:" + a.name, ["/usr/libexec/djos/flatpak-audio", "install", a.flatpak])
+    }
+    function removeApp(a) {
+        busyApp = a.name
+        djos.run("app:" + a.name, ["/usr/libexec/djos/flatpak-audio", "remove"].concat(a.pack ? a.flatpaks : [a.flatpak]))
+    }
+    function openApp(a) {
+        if (a.native)
+            djos.launch(["kioclient", "exec", a.path || ("/usr/share/applications/" + a.native)])
+        else
+            djos.launch(["flatpak", "run", a.flatpak])
     }
     function connectGitHub() { djos.launch(["konsole", "--hide-menubar", "-e", "/usr/libexec/djos/connect"]) }
     function lastLine(text) { return (text || "").split("\n").filter(l => l.trim().length > 0).slice(-1)[0] || "" }

@@ -15,15 +15,21 @@ RPM Fusion keep the system itself up to date. If you remove the package, you get
 - **DJOS look**: DJOS theme (graphite and orange), Papirus Dark icons with orange folders, the Inter font,
   wallpapers, and DJOS boot, login and lock screens. Each monitor runs at its highest refresh rate.
 - **DJOS Center**: sound cards, sample rate and buffer, a real-time checklist, performance, updates, apps and
-  plugins, and music disks. It also appears in System Settings under DJOS.
+  plugins, **Which App?** (what to use for each job: cut a track, fix tags, record a set…) and music disks. It also
+  appears in System Settings under DJOS.
+- **DJOS Preview**: listen to tracks instantly. Right-click tracks or a folder in Dolphin > **Preview (DJOS)**, or
+  open it from the menu. Space plays and pauses at once, the arrow keys move between tracks (it keeps playing) and
+  seek, and the whole waveform (bass blue, mids orange, highs white) shows in a moment. It plays on the desktop
+  sound output at low priority, and it never starts by itself while a set is playing.
 - **DJOS Self-Test**: one click checks the real-time setup, NVIDIA, displays, sound cards and DJ controllers,
   and plays through your sound card to count dropouts.
 - **DJ controllers**: detects controllers whose sound card Linux doesn't know yet and offers a compatible mode.
 - **Richie DJ**: installed and kept up to date automatically, and never replaced while it's open.
-- **Apps**: Ardour, Carla, Audacity, Kid3, Picard, SoundConverter, Sonic Visualiser, Haruna and qpwgraph, plus
-  LV2/VST3/CLAP plugins (LSP, x42, Calf, ZAM, ZynAddSubFX) and latency tools. You can remove any of them
-  without removing DJOS. DJOS Center installs more with one click, such as Mixxx, Bitwig Studio, REAPER,
-  OBS Studio and plugin packs.
+- **Apps**: Ardour, Carla, Audacity, Puddletag (like Mp3tag), Kid3, Picard, SoundConverter, Sonic Visualiser,
+  Haruna and qpwgraph, plus LV2/VST3/CLAP plugins (LSP, x42, Calf, ZAM, ZynAddSubFX) and latency tools. You can
+  remove any of them without removing DJOS. DJOS Center installs more with one click, such as Mixxx, LosslessCut
+  (cut MP3s without re-encoding, like mp3DirectCut), Bitwig Studio, REAPER, OBS Studio and plugin packs. The app menu
+  starts with DJ, Produce, Edit & Tag and Record & Stream, and folders open in Dolphin as a list with size and date.
 
 ## Install
 

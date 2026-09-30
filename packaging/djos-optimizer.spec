@@ -47,6 +47,9 @@ Requires:       /usr/bin/kscreen-doctor
 Requires:       usbutils
 Requires:       pciutils
 Requires:       python3-pyside6
+# DJOS Preview: decodifica con ffmpeg (ffmpeg-free de Fedora o el ffmpeg de RPM Fusion: los dos traen estos archivos)
+Requires:       /usr/bin/ffmpeg
+Requires:       /usr/bin/ffprobe
 Requires:       kf6-kirigami
 Requires:       kf6-kconfig
 Requires:       polkit
@@ -78,6 +81,10 @@ Recommends:     Carla
 Recommends:     audacity
 Recommends:     kid3
 Recommends:     picard
+# editor de etiquetas como Mp3tag (en forma de planilla)
+Recommends:     puddletag
+# DJOS Preview lee las etiquetas con mutagen (rápido); sin él, con ffprobe
+Recommends:     python3-mutagen
 Recommends:     soundconverter
 Recommends:     sonic-visualiser
 Recommends:     haruna

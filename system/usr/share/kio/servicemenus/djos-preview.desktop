@@ -1,0 +1,11 @@
+# DJOS: clic derecho en temas o carpetas de Dolphin > "Preview (DJOS)" (DJOS Preview, /usr/libexec/djos/preview)
+[Desktop Entry]
+Type=Service
+MimeType=audio/*;inode/directory;
+Actions=djosPreview;
+X-KDE-Priority=TopLevel
+
+[Desktop Action djosPreview]
+Name=Preview (DJOS)
+Icon=djospreview
+Exec=/usr/libexec/djos/preview %U

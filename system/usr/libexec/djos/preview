@@ -1,0 +1,1410 @@
+#!/usr/bin/python3
+# DJOS Preview: escuchar temas al instante. Se abre sobre un tema o una carpeta (Dolphin: clic derecho > "Preview
+# (DJOS)", el menú de apps o "Abrir con"), muestra los temas de la carpeta y la onda entera del tema elegido.
+#   Espacio  reproducir / pausa (al instante: el tema ya se está decodificando desde que se elige)
+#   ↑ ↓      tema anterior / siguiente (si estaba sonando, sigue sonando)
+#   ← →      5 s atrás / adelante (con Shift, 30 s); 1…9 salta al 10…90 %; clic en la onda: salta ahí
+#   Esc      cerrar
+#   preview [archivo|carpeta…]
+# Nunca molesta a Richie DJ: suena por la salida normal del escritorio (PipeWire) con un buffer grande (no le achica
+# el quantum a nadie), a baja prioridad (nice, E/S en reposo), suelta la salida de audio al pausar, y mientras
+# gig-guard dice que está sonando un set no arranca solo (ni precalcula ondas): hay que apretar Espacio a propósito.
+# La onda (3 bandas como rekordbox: graves azul, medios naranja, agudos blanco) la calcula ffmpeg en segundo plano y
+# se guarda en ~/.cache/djos-preview; el audio se decodifica con ffmpeg a PCM (48 kHz, 16 bits) en memoria.
+import array
+import hashlib
+import json
+import os
+import shutil
+import struct
+import subprocess
+import sys
+import threading
+import time
+
+# antes de Qt: cómo se presenta el audio a PipeWire (rol música, latencia pedida grande: el quantum lo siguen
+# decidiendo Richie DJ o el DAW, nunca este programa)
+# Por PipeWire vía su servidor de PulseAudio (pipewire-pulse, el de Fedora): la salida de Qt más probada, respeta el
+# buffer pedido (latencia grande) y ve siempre la salida por defecto del escritorio (la nativa de PipeWire de Qt 6.11
+# no ve salidas virtuales como "Dummy Output")
+os.environ.setdefault("QT_AUDIO_BACKEND", "pulseaudio")
+os.environ.setdefault("PULSE_PROP", "media.role=music application.icon_name=djospreview")
+os.environ.setdefault("PULSE_LATENCY_MSEC", "60")
+os.environ.setdefault("PIPEWIRE_LATENCY", "2048/48000")
+os.environ.setdefault("QT_QPA_PLATFORMTHEME", "kde")
+
+from PySide6.QtCore import QIODevice, QObject, QPointF, QRectF, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QShortcut
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QFileDialog, QHBoxLayout, QHeaderView, QLabel,
+                               QMainWindow, QPushButton, QSizePolicy, QToolButton, QTreeWidget, QTreeWidgetItem,
+                               QVBoxLayout, QWidget)
+
+try:
+    from PySide6.QtMultimedia import QAudio, QAudioFormat, QAudioSink, QMediaDevices
+except ImportError:   # sin QtMultimedia se ve igual (onda, etiquetas), sin sonido
+    QAudioSink = None
+
+try:
+    import mutagen
+except ImportError:
+    mutagen = None
+
+APP = "DJOS Preview"
+AUDIO_EXT = {".mp3", ".flac", ".m4a", ".mp4", ".aac", ".alac", ".wav", ".wave", ".aif", ".aiff", ".aifc", ".ogg",
+             ".oga", ".opus", ".wma", ".wv", ".ape"}
+RATE = 48000
+FRAME = 4                                   # bytes por cuadro: 16 bits × 2 canales
+CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "djos-preview")
+CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "djos", "preview.json")
+GIG_GUARD = os.environ.get("DJOS_GIG_GUARD", "/usr/libexec/djos/gig-guard")   # (otra ruta: solo pruebas)
+BINS = 1600                                 # columnas de la onda guardada
+ENV_RATE = 1050                             # muestras por segundo de la envolvente que da ffmpeg
+AHEAD = 6 * 60 * RATE * FRAME               # PCM decodificado por delante de lo que suena (6 min, ~66 MB)
+KEEP = 12 * 60 * RATE * FRAME               # más que esto en memoria: se tira lo que ya sonó
+BUFFER_MS = 250                             # buffer de la salida de audio
+
+# colores de DJOS (DJOS.colors) y de la onda de 3 bandas
+C_BG = QColor(18, 21, 25)
+C_VIEW = QColor(22, 25, 30)
+C_VIEW_ALT = QColor(27, 31, 37)
+C_TEXT = QColor(230, 232, 235)
+C_DIM = QColor(138, 145, 155)
+C_ORANGE = QColor(255, 122, 26)
+C_LOW = QColor(38, 110, 255)
+C_MID = QColor(255, 150, 30)
+C_HIGH = QColor(245, 245, 250)
+
+
+def enum_name(v):
+    """nombre de un valor de enum de Qt (QAudio y QtAudio son el mismo enum con dos nombres según la versión)"""
+    return getattr(v, "name", str(v).rsplit(".", 1)[-1])
+
+
+def fmt_time(sec):
+    sec = max(0, int(sec))
+    return f"{sec // 60}:{sec % 60:02d}"
+
+
+IONICE = shutil.which("ionice")
+
+
+def idle_io(args, cls="3"):
+    """el comando con la E/S en reposo (clase 3) o en "best effort" bajo (clase 2, nivel 7), si hay ionice"""
+    if not IONICE:
+        return args
+    return [IONICE, "-c", cls] + (["-n", "7"] if cls == "2" else []) + args
+
+
+def low_priority():
+    """Para los ffmpeg de las ondas: lo más bajo posible (el audio de un set nunca espera por esto)."""
+    try:
+        os.nice(10)
+        os.sched_setscheduler(0, os.SCHED_IDLE, os.sched_param(0))
+    except (OSError, AttributeError):
+        pass
+
+
+def batch_priority():
+    """Para el ffmpeg que decodifica lo que se escucha: baja, pero no tanto como para cortarse con la PC ocupada."""
+    try:
+        os.nice(5)
+        os.sched_setscheduler(0, os.SCHED_BATCH, os.sched_param(0))
+    except (OSError, AttributeError):
+        pass
+
+
+def set_playing():
+    """gig-guard: ¿está sonando un set (Richie DJ tiene pedida latencia mínima al procesador)?"""
+    if not os.access(GIG_GUARD, os.X_OK):
+        return False
+    try:
+        return subprocess.run([GIG_GUARD], capture_output=True, timeout=3).returncode != 0
+    except Exception:
+        return False
+
+
+# --- etiquetas ----------------------------------------------------------------------------------------------------
+def _first(v):
+    if v is None:
+        return ""
+    if isinstance(v, (list, tuple)):
+        v = v[0] if v else ""
+    if isinstance(v, bytes):
+        v = v.decode("utf-8", "replace")
+    return str(v).strip()
+
+
+def read_tags(path):
+    """título, artista, BPM, tono, duración, formato; con mutagen (rápido) o, si no, con ffprobe."""
+    info = {"title": "", "artist": "", "bpm": "", "key": "", "duration": 0.0, "format": ""}
+    ext = os.path.splitext(path)[1].lower().lstrip(".").upper()
+    if mutagen:
+        try:
+            f = mutagen.File(path)
+            if f is not None:
+                t = f.tags or {}
+                keys = {k.lower() if isinstance(k, str) else k: k for k in getattr(t, "keys", lambda: [])()}
+
+                def get(*names):
+                    for n in names:
+                        k = keys.get(n.lower())
+                        if k is not None:
+                            try:
+                                v = t[k]
+                            except Exception:
+                                continue
+                            v = getattr(v, "text", v)
+                            s = _first(v)
+                            if s:
+                                return s
+                    return ""
+                info["title"] = get("TIT2", "title", "\xa9nam")
+                info["artist"] = get("TPE1", "artist", "\xa9ART", "albumartist", "aART")
+                bpm = get("TBPM", "bpm", "tmpo")
+                info["key"] = get("TKEY", "initialkey", "key", "----:com.apple.iTunes:initialkey",
+                                  "----:com.apple.iTunes:KEY", "TXXX:INITIALKEY")
+                try:
+                    b = float(bpm)
+                    info["bpm"] = f"{b:.0f}" if abs(b - round(b)) < 0.05 else f"{b:.1f}"
+                except ValueError:
+                    info["bpm"] = ""
+                i = f.info
+                info["duration"] = float(getattr(i, "length", 0) or 0)
+                br = int(getattr(i, "bitrate", 0) or 0)
+                sr = int(getattr(i, "sample_rate", 0) or 0)
+                bits = int(getattr(i, "bits_per_sample", 0) or 0)
+                parts = [ext]
+                if ext in ("FLAC", "WAV", "WAVE", "AIFF", "AIF", "AIFC", "ALAC", "WV", "APE"):
+                    if bits:
+                        parts.append(f"{bits}-bit")
+                elif br:
+                    parts.append(f"{round(br / 1000)} kbps")
+                if sr:
+                    parts.append(f"{sr / 1000:g} kHz")
+                info["format"] = " · ".join(parts)
+                if info["duration"] > 0:
+                    return info
+        except Exception:
+            pass
+    try:
+        out = subprocess.run(["ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams",
+                              "-select_streams", "a:0", path], capture_output=True, text=True, timeout=15).stdout
+        d = json.loads(out or "{}")
+        fm = d.get("format", {})
+        tags = {k.lower(): v for k, v in (fm.get("tags") or {}).items()}
+        st = (d.get("streams") or [{}])[0]
+        tags.update({k.lower(): v for k, v in (st.get("tags") or {}).items() if k.lower() not in tags})
+        info["title"] = info["title"] or tags.get("title", "")
+        info["artist"] = info["artist"] or tags.get("artist", "")
+        info["bpm"] = info["bpm"] or tags.get("tbpm", tags.get("bpm", ""))
+        info["key"] = info["key"] or tags.get("tkey", tags.get("initialkey", tags.get("key", "")))
+        info["duration"] = info["duration"] or float(fm.get("duration") or st.get("duration") or 0)
+        if not info["format"]:
+            br = int(fm.get("bit_rate") or 0)
+            sr = int(st.get("sample_rate") or 0)
+            info["format"] = " · ".join([ext] + ([f"{round(br / 1000)} kbps"] if br else [])
+                                        + ([f"{sr / 1000:g} kHz"] if sr else []))
+    except Exception:
+        pass
+    return info
+
+
+def name_guess(path):
+    """sin etiquetas: "01 Artista - Título.mp3" → (artista, título)"""
+    import re
+    base = re.sub(r"^\s*\d{1,3}[\s._-]+", "", os.path.splitext(os.path.basename(path))[0])
+    if " - " in base:
+        a, t = base.split(" - ", 1)
+        return a.strip(), t.strip()
+    return "", base.strip()
+
+
+def with_names(path, info):
+    if not info.get("title"):
+        a, t = name_guess(path)
+        info["title"] = t
+        info["artist"] = info.get("artist") or a
+    return info
+
+
+# --- la onda --------------------------------------------------------------------------------------------------------
+# graves (< 200 Hz), medios (200-2500 Hz) y agudos (> 2500 Hz) de una mezcla mono a 22 kHz; ffmpeg rectifica y baja la
+# envolvente a ENV_RATE muestras por segundo (float, 3 canales)
+WAVE_GRAPH = ("[0:a:0]aformat=sample_fmts=fltp:channel_layouts=mono,aresample=22050,asplit=3[a][b][c];"
+              "[a]lowpass=f=200,lowpass=f=200[l];[b]highpass=f=200,lowpass=f=2500[m];[c]highpass=f=2500[h];"
+              "[l][m][h]join=inputs=3:channel_layout=3.0,aeval=abs(val(0))|abs(val(1))|abs(val(2)):c=same,"
+              f"aresample={ENV_RATE}[o]")
+
+
+def cache_path(path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return ""
+    key = hashlib.sha1(f"{os.path.realpath(path)}\0{st.st_size}\0{st.st_mtime_ns}".encode()).hexdigest()
+    return os.path.join(CACHE, key[:2], key + ".wf")
+
+
+def load_wave(path):
+    """(low, mid, high: bytes de BINS valores 0-255, duración) desde la caché, o None."""
+    cp = cache_path(path)
+    try:
+        with open(cp, "rb") as f:
+            data = f.read()
+        if data[:6] != b"DJWF1\0" or len(data) != 6 + 4 + 8 + 3 * BINS:
+            return None
+        n, dur = struct.unpack("<Id", data[6:18])
+        if n != BINS:
+            return None
+        b = data[18:]
+        return bytes(b[:BINS]), bytes(b[BINS:2 * BINS]), bytes(b[2 * BINS:]), dur
+    except OSError:
+        return None
+
+
+def save_wave(path, low, mid, high, dur):
+    cp = cache_path(path)
+    if not cp:
+        return
+    try:
+        os.makedirs(os.path.dirname(cp), exist_ok=True)
+        tmp = cp + f".{os.getpid()}.tmp"
+        with open(tmp, "wb") as f:
+            f.write(b"DJWF1\0" + struct.pack("<Id", BINS, dur) + bytes(low) + bytes(mid) + bytes(high))
+        os.replace(tmp, cp)
+    except OSError:
+        pass
+
+
+def band_peaks(low, mid, high):
+    """escala de cada banda: su propio pico, pero nunca menos que una parte del pico del tema (medios 1/2, agudos 1/3):
+    unos agudos bajitos quedan chicos, como en rekordbox, y unos fuertes llenan su franja"""
+    top = max(max(low), max(mid), max(high), 1e-6)
+    return max(max(low), 1e-6), max(max(mid), top / 2), max(max(high), top / 3)
+
+
+class WaveJob:
+    """Calcula la onda de un tema con ffmpeg; llama a progress(low, mid, high, fracción) mientras avanza (floats sin
+    normalizar) y devuelve los bytes 0-255 al final. cancel() lo corta."""
+
+    def __init__(self, path, duration):
+        self.path = path
+        self.duration = duration
+        self.proc = None
+        self.cancelled = False
+
+    def cancel(self):
+        self.cancelled = True
+        p = self.proc
+        if p and p.poll() is None:
+            try:
+                p.kill()
+            except OSError:
+                pass
+
+    def run(self, progress=None):
+        dur = self.duration
+        if dur <= 0:
+            dur = read_tags(self.path)["duration"]
+        if dur <= 0 or self.cancelled:
+            return None
+        total = dur * ENV_RATE
+        per_bin = max(1.0, total / BINS)
+        low = [0.0] * BINS
+        mid = [0.0] * BINS
+        high = [0.0] * BINS
+        try:
+            self.proc = subprocess.Popen(idle_io(["ffmpeg", "-v", "error", "-nostdin", "-threads", "1", "-i", self.path,
+                                                  "-filter_complex", WAVE_GRAPH, "-map", "[o]", "-f", "f32le", "-"]),
+                                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, preexec_fn=low_priority)
+        except OSError:
+            return None
+        n = 0          # muestras (de 3 canales) leídas
+        rest = b""
+        last = time.monotonic()
+        while not self.cancelled:
+            chunk = self.proc.stdout.read(3 * 4 * 4096)
+            if not chunk:
+                break
+            chunk = rest + chunk
+            cut = len(chunk) - len(chunk) % 12
+            rest = chunk[cut:]
+            a = array.array("f")
+            a.frombytes(chunk[:cut])
+            if sys.byteorder != "little":
+                a.byteswap()
+            cnt = len(a) // 3
+            # por columna: el máximo de cada banda
+            i = 0
+            while i < cnt:
+                b = int((n + i) / per_bin)
+                if b >= BINS:
+                    b = BINS - 1
+                end = min(cnt, int((b + 1) * per_bin) - n)
+                if end <= i:
+                    end = i + 1
+                seg = a[3 * i:3 * end]
+                lo = max(seg[0::3])
+                mi = max(seg[1::3])
+                hi = max(seg[2::3])
+                if lo > low[b]:
+                    low[b] = lo
+                if mi > mid[b]:
+                    mid[b] = mi
+                if hi > high[b]:
+                    high[b] = hi
+                i = end
+            n += cnt
+            now = time.monotonic()
+            if progress and now - last > 0.08:
+                last = now
+                progress(low, mid, high, min(1.0, n / total))
+        self.proc.stdout.close()
+        self.proc.wait()
+        if self.cancelled or n == 0:
+            return None
+        pl, pm, ph = band_peaks(low, mid, high)
+
+        def q(v, peak):
+            return bytes(min(255, int(255 * (x / peak) ** 0.8)) for x in v)
+        res = (q(low, pl), q(mid, pm), q(high, ph), n / ENV_RATE)
+        save_wave(self.path, *res)
+        return res
+
+
+# --- el audio -------------------------------------------------------------------------------------------------------
+class Decoder:
+    """PCM de un tema (48 kHz, 16 bits, estéreo) en memoria, decodificado por ffmpeg en un hilo desde un cuadro dado.
+    Tiene [base, base + len(buf)/FRAME); más allá se vuelve a arrancar ffmpeg con -ss."""
+
+    def __init__(self):
+        self.lock = threading.Condition()
+        self.path = None
+        self.base = 0
+        self.buf = bytearray()
+        self.done = False
+        self.error = ""
+        self.proc = None
+        self.gen = 0
+        self.want = 0          # cuadro que está sonando (para no decodificar de más)
+
+    def stop(self):
+        with self.lock:
+            self.gen += 1
+            p = self.proc
+            self.proc = None
+            self.lock.notify_all()
+        if p and p.poll() is None:
+            try:
+                p.kill()
+            except OSError:
+                pass
+
+    def open(self, path, frame=0):
+        self.stop()
+        with self.lock:
+            self.path = path
+            self.base = frame
+            self.buf = bytearray()
+            self.done = False
+            self.error = ""
+            self.want = frame
+            gen = self.gen
+        args = ["ffmpeg", "-v", "error", "-nostdin"]
+        if frame > 0:
+            args += ["-ss", f"{frame / RATE:.3f}"]
+        args += ["-i", path, "-map", "0:a:0", "-vn", "-f", "s16le", "-acodec", "pcm_s16le", "-ac", "2",
+                 "-ar", str(RATE), "-"]
+        try:
+            p = subprocess.Popen(idle_io(args, "2"), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 preexec_fn=batch_priority)
+        except OSError as e:
+            with self.lock:
+                self.done = True
+                self.error = str(e)
+            return
+        with self.lock:
+            self.proc = p
+        threading.Thread(target=self._pump, args=(p, gen), daemon=True).start()
+
+    def _pump(self, p, gen):
+        while True:
+            with self.lock:
+                # no más de AHEAD por delante de lo que suena
+                while gen == self.gen and (self.base * FRAME + len(self.buf)) - self.want * FRAME > AHEAD:
+                    self.lock.wait(0.5)
+                if gen != self.gen:
+                    break
+            chunk = p.stdout.read(65536)
+            with self.lock:
+                if gen != self.gen:
+                    break
+                if not chunk:
+                    self.done = True
+                    try:
+                        err = p.stderr.read().decode("utf-8", "replace").strip()
+                    except Exception:
+                        err = ""
+                    if not self.buf and err:
+                        self.error = err.splitlines()[-1]
+                    self.lock.notify_all()
+                    break
+                self.buf += chunk
+                # lo que ya sonó hace rato se tira (mixes largos)
+                drop = (self.want - self.base) * FRAME - 60 * RATE * FRAME
+                if len(self.buf) > KEEP and drop > 0:
+                    drop -= drop % FRAME
+                    del self.buf[:drop]
+                    self.base += drop // FRAME
+                self.lock.notify_all()
+        try:
+            p.stdout.close()
+        except OSError:
+            pass
+
+    def covers(self, frame):
+        """¿se puede tocar desde ese cuadro sin volver a arrancar ffmpeg? (hasta 2 s más allá de lo decodificado)"""
+        with self.lock:
+            end = self.base + len(self.buf) // FRAME
+            if self.done:
+                return self.base <= frame
+            return self.base <= frame <= end + 2 * RATE
+
+    def read(self, frame, nbytes):
+        """(bytes, fin): lo que hay desde 'frame'; b"" y fin=False si todavía no llegó (el que llama pone silencio)"""
+        with self.lock:
+            self.want = frame
+            self.lock.notify_all()
+            off = (frame - self.base) * FRAME
+            if off < 0:
+                return b"", False
+            data = bytes(self.buf[off:off + nbytes])
+            end = self.done and off + len(data) >= len(self.buf)
+            return data, end
+
+
+class PcmDevice(QIODevice):
+    """De dónde saca el audio la salida (modo "pull"): del Decoder, desde player.frame."""
+
+    def __init__(self, player):
+        super().__init__()
+        self.player = player
+
+    def isSequential(self):
+        return True
+
+    def bytesAvailable(self):
+        return 1 << 20
+
+    def readData(self, maxlen):
+        pl = self.player
+        maxlen -= maxlen % FRAME
+        if maxlen <= 0:
+            return b""
+        data, end = pl.dec.read(pl.frame, maxlen)
+        if data:
+            pl.frame += len(data) // FRAME
+            if pl.t_play:
+                log(f"audio: first samples {(time.monotonic() - pl.t_play) * 1000:.0f} ms after play")
+                pl.t_play = 0
+            return data
+        if end:
+            pl.ended = True
+            return b""
+        # todavía decodificando (recién elegido o recién saltado): unos milisegundos de silencio
+        n = min(maxlen, RATE // 50 * FRAME)
+        return bytes(n)
+
+    def writeData(self, data):
+        return 0
+
+
+class Player(QObject):
+    """Reproduce un tema por la salida normal del escritorio. Pausar suelta la salida (PipeWire puede dormir la placa
+    y Richie DJ tomarla); volver a tocar la abre de nuevo en milisegundos."""
+    stateChanged = Signal()
+    failed = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.dec = Decoder()
+        self.path = None
+        self.frame = 0          # próximo cuadro que se le entrega a la salida
+        self.ended = False
+        self.playing = False
+        self.sink = None
+        self.dev = None
+        self.duration = 0.0
+        self.t_play = 0
+        self.fmt = None
+        if QAudioSink is not None:
+            self.fmt = QAudioFormat()
+            self.fmt.setSampleRate(RATE)
+            self.fmt.setChannelCount(2)
+            self.fmt.setSampleFormat(QAudioFormat.SampleFormat.Int16)
+        self.endTimer = QTimer(self)
+        self.endTimer.setInterval(100)
+        self.endTimer.timeout.connect(self._check_end)
+
+    def load(self, path, duration=0.0):
+        """Elige un tema: empieza a decodificarlo ya (así Espacio suena al instante). Si estaba sonando, sigue."""
+        was = self.playing
+        self._release()
+        self.path = path
+        self.duration = duration
+        self.frame = 0
+        self.ended = False
+        self.dec.open(path, 0)
+        if was:
+            self.play()
+        self.stateChanged.emit()
+
+    def position(self):
+        """segundos de lo que se está escuchando (lo entregado menos lo que espera en el buffer de la salida)"""
+        f = self.frame
+        if self.sink is not None and self.playing:
+            try:
+                f -= max(0, self.sink.bufferSize() - self.sink.bytesFree()) // FRAME
+            except RuntimeError:
+                pass
+        return max(0.0, f / RATE)
+
+    def _release(self):
+        if self.sink is not None:
+            pos = self.position()
+            try:
+                self.sink.stop()
+            except RuntimeError:
+                pass
+            self.sink.deleteLater()
+            self.sink = None
+            self.frame = int(pos * RATE)
+        if self.dev is not None:
+            self.dev.close()
+            self.dev.deleteLater()
+            self.dev = None
+        self.endTimer.stop()
+        self.playing = False
+
+    def play(self):
+        if not self.path:
+            return
+        if QAudioSink is None:
+            self.failed.emit("Sound output is not available (QtMultimedia is missing).")
+            return
+        if self.ended or (self.duration > 0 and self.frame >= int(self.duration * RATE) - RATE // 10):
+            self.seek(0.0)
+        if not self.dec.covers(self.frame):
+            self.dec.open(self.path, self.frame)
+        dev = QMediaDevices.defaultAudioOutput()
+        if dev.isNull():
+            log("play: no default audio output")
+            self.failed.emit("No sound output found.")
+            return
+        self.ended = False
+        self.t_play = time.monotonic()
+        self.dev = PcmDevice(self)
+        self.dev.open(QIODevice.OpenModeFlag.ReadOnly)
+        self.sink = QAudioSink(dev, self.fmt, self)
+        self.sink.setBufferSize(RATE * FRAME * BUFFER_MS // 1000)
+        self.sink.start(self.dev)
+        log(f"play {os.path.basename(self.path)} at {self.frame / RATE:.1f} s on '{dev.description()}': "
+            f"state {self.sink.state()}, error {self.sink.error()}, buffer {self.sink.bufferSize()} bytes")
+        if enum_name(self.sink.error()) != "NoError":
+            err = self.sink.error()
+            self._release()
+            self.failed.emit(f"The sound output could not be opened ({err}).")
+            return
+        self.playing = True
+        self.endTimer.start()
+        self.stateChanged.emit()
+
+    def pause(self):
+        self._release()
+        self.stateChanged.emit()
+
+    def toggle(self):
+        if self.playing:
+            self.pause()
+        else:
+            self.play()
+
+    def seek(self, sec):
+        if not self.path:
+            return
+        if self.duration > 0:
+            sec = min(sec, max(0.0, self.duration - 0.05))
+        sec = max(0.0, sec)
+        was = self.playing
+        if was:
+            self._release()
+        self.frame = int(sec * RATE)
+        self.ended = False
+        if not self.dec.covers(self.frame):
+            self.dec.open(self.path, self.frame)
+        if was:
+            self.play()
+        self.stateChanged.emit()
+
+    def _check_end(self):
+        if self.ended and self.sink is not None:
+            if self.sink.bytesFree() >= self.sink.bufferSize() - FRAME * 64 or \
+                    enum_name(self.sink.state()) in ("IdleState", "StoppedState"):
+                self._release()
+                self.frame = 0
+                self.ended = False
+                self.stateChanged.emit()
+
+    def close(self):
+        self._release()
+        self.dec.stop()
+
+
+# --- la interfaz ----------------------------------------------------------------------------------------------------
+class WaveView(QWidget):
+    """Toda la onda del tema: 3 bandas, lo ya escuchado más apagado, la línea de lo que suena. Clic = saltar.
+    La onda se dibuja una vez en dos imágenes (normal y apagada); cada cuadro solo las pega y pone la línea."""
+    seekRequested = Signal(float)
+
+    def __init__(self):
+        super().__init__()
+        self.setMinimumHeight(120)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMouseTracking(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.low = self.mid = self.high = None
+        self.progress = 0.0     # cuánto de la onda ya está calculado
+        self.duration = 0.0
+        self.pos = 0.0
+        self.hover = -1
+        self.message = ""
+        self.pix = self.pix_dim = None
+
+    def clear(self, message=""):
+        self.low = self.mid = self.high = None
+        self.progress = 0.0
+        self.pos = 0.0
+        self.message = message
+        self.pix = self.pix_dim = None
+        self.update()
+
+    def set_final(self, low, mid, high, duration):
+        self.low = [v / 255 for v in low]
+        self.mid = [v / 255 for v in mid]
+        self.high = [v / 255 for v in high]
+        self.progress = 1.0
+        if duration > 0:
+            self.duration = duration
+        self.message = ""
+        self._render()
+
+    def set_partial(self, low, mid, high, frac):
+        pl, pm, ph = band_peaks(low, mid, high)
+        self.low = [min(1.0, (v / pl) ** 0.8) for v in low]
+        self.mid = [min(1.0, (v / pm) ** 0.8) for v in mid]
+        self.high = [min(1.0, (v / ph) ** 0.8) for v in high]
+        self.progress = frac
+        self.message = ""
+        self._render()
+
+    def set_pos(self, pos):
+        if abs(pos - self.pos) > 1e-3:
+            self.pos = pos
+            self.update()
+
+    def resizeEvent(self, e):
+        if self.low is not None:
+            self._render()
+        super().resizeEvent(e)
+
+    def _render(self):
+        dpr = self.devicePixelRatioF()
+        pw, ph = max(1, int(self.width() * dpr)), max(1, int(self.height() * dpr))
+        n = len(self.low)
+        mid_y = ph / 2
+        amp = ph / 2 - 6 * dpr
+        cols = []
+        for x in range(pw):
+            i0 = int(x * n / pw)
+            i1 = max(i0 + 1, int((x + 1) * n / pw))
+            if i0 >= n:
+                break
+            cols.append((max(self.low[i0:i1]), max(self.mid[i0:i1]), max(self.high[i0:i1])))
+        imgs = []
+        for alpha in (255, 105):
+            pix = QPixmap(pw, ph)
+            pix.fill(QColor(11, 13, 16))
+            p = QPainter(pix)
+            p.setPen(QPen(QColor(255, 255, 255, 18), 1))
+            p.drawLine(0, int(mid_y), pw, int(mid_y))
+            for band, c, scale in ((0, C_LOW, 1.0), (1, C_MID, 0.7), (2, C_HIGH, 0.42)):
+                col = QColor(c)
+                col.setAlpha(alpha)
+                p.setPen(QPen(col, 1))
+                for x, v in enumerate(cols):
+                    hh = v[band] * amp * scale
+                    if hh >= 0.5:
+                        p.drawLine(QPointF(x + 0.5, mid_y - hh), QPointF(x + 0.5, mid_y + hh))
+            if self.progress < 1.0:   # lo que falta calcular
+                p.fillRect(QRectF(self.progress * pw, 0, pw - self.progress * pw, ph), QColor(11, 13, 16, 200))
+            p.end()
+            pix.setDevicePixelRatio(dpr)
+            imgs.append(pix)
+        self.pix, self.pix_dim = imgs
+        self.update()
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton and self.duration > 0:
+            x = min(max(0.0, e.position().x()), self.width())
+            self.seekRequested.emit(x / max(1, self.width()) * self.duration)
+
+    def mouseMoveEvent(self, e):
+        self.hover = int(e.position().x())
+        self.update()
+
+    def leaveEvent(self, e):
+        self.hover = -1
+        self.update()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        w, h = self.width(), self.height()
+        if self.pix is None:
+            p.fillRect(self.rect(), QColor(11, 13, 16))
+            p.setPen(C_DIM)
+            p.drawText(self.rect(), Qt.AlignCenter, self.message or "")
+            p.end()
+            return
+        played_x = min(w, self.pos / self.duration * w) if self.duration > 0 else 0
+        dpr = self.pix.devicePixelRatio()
+        px = played_x * dpr
+        # lo ya escuchado, apagado (como rekordbox); el resto, normal
+        if played_x > 0:
+            p.drawPixmap(QRectF(0, 0, played_x, h), self.pix_dim, QRectF(0, 0, px, self.pix.height()))
+        p.drawPixmap(QRectF(played_x, 0, w - played_x, h), self.pix,
+                     QRectF(px, 0, self.pix.width() - px, self.pix.height()))
+        if self.duration > 0:
+            p.fillRect(QRectF(played_x - 1, 0, 2, h), C_ORANGE)
+        if 0 <= self.hover < w and self.duration > 0:
+            p.setPen(QPen(QColor(255, 255, 255, 90), 1))
+            p.drawLine(self.hover, 0, self.hover, h)
+            t = fmt_time(self.hover / w * self.duration)
+            p.setPen(C_TEXT)
+            r = QRectF(min(self.hover + 6, w - 60), 4, 56, 18)
+            p.fillRect(r, QColor(0, 0, 0, 150))
+            p.drawText(r, Qt.AlignCenter, t)
+        p.end()
+
+
+def glyph(name, color):
+    """Íconos de reproducir, pausa, anterior y siguiente dibujados acá (iguales con cualquier tema de íconos)"""
+    from PySide6.QtGui import QPolygonF
+    s = 64
+    pix = QPixmap(s, s)
+    pix.fill(Qt.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(Qt.NoPen)
+    p.setBrush(color)
+    if name == "media-playback-start":
+        p.drawPolygon(QPolygonF([QPointF(20, 12), QPointF(54, 32), QPointF(20, 52)]))
+    elif name == "media-playback-pause":
+        p.drawRoundedRect(QRectF(16, 12, 11, 40), 3, 3)
+        p.drawRoundedRect(QRectF(37, 12, 11, 40), 3, 3)
+    elif name == "media-skip-forward":
+        p.drawPolygon(QPolygonF([QPointF(12, 14), QPointF(42, 32), QPointF(12, 50)]))
+        p.drawRoundedRect(QRectF(44, 14, 8, 36), 2, 2)
+    else:   # media-skip-backward
+        p.drawPolygon(QPolygonF([QPointF(52, 14), QPointF(22, 32), QPointF(52, 50)]))
+        p.drawRoundedRect(QRectF(12, 14, 8, 36), 2, 2)
+    p.end()
+    return QIcon(pix)
+
+
+class Chip(QLabel):
+    def __init__(self):
+        super().__init__()
+        self.setStyleSheet("QLabel { background: #20252c; border: 1px solid #2c323a; border-radius: 6px;"
+                           " padding: 3px 9px; color: #e6e8eb; }")
+        self.hide()
+
+    def set(self, text):
+        self.setText(text)
+        self.setVisible(bool(text))
+
+
+COLS = ["#", "Title", "Artist", "BPM", "Key", "Time", "Format"]
+
+
+class Window(QMainWindow):
+    waveProgress = Signal(str, object, object, object, float)
+    waveDone = Signal(str, object)
+    tagsReady = Signal(int, str, object)
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle(APP)
+        self.setWindowIcon(QIcon.fromTheme("djospreview", QIcon.fromTheme("media-playback-start")))
+        self.resize(1180, 720)
+        self.setAcceptDrops(True)
+        self.player = Player()
+        self.player.stateChanged.connect(self.refresh_state)
+        self.player.failed.connect(self.show_banner)
+        self.files = []
+        self.tags = {}
+        self.current = -1
+        self.folder = ""
+        self.wave_job = None
+        self.prefetch_stop = threading.Event()
+        self.list_gen = 0
+        self.gig = False
+        self.explicit = False     # el usuario apretó Espacio/clic (vale aunque haya un set)
+        self.waveProgress.connect(self.on_wave_progress)
+        self.waveDone.connect(self.on_wave_done)
+        self.tagsReady.connect(self.on_tags)
+
+        root = QWidget()
+        self.setCentralWidget(root)
+        lay = QVBoxLayout(root)
+        lay.setContentsMargins(18, 14, 18, 12)
+        lay.setSpacing(10)
+
+        # cabecera: botones, título, artista, datos
+        head = QHBoxLayout()
+        head.setSpacing(12)
+        self.btn_prev = self._tool("media-skip-backward", "Previous track (Up)", lambda: self.step(-1))
+        self.btn_play = self._tool("media-playback-start", "Play / pause (Space)", self.toggle, big=True)
+        self.btn_next = self._tool("media-skip-forward", "Next track (Down)", lambda: self.step(1))
+        for b in (self.btn_prev, self.btn_play, self.btn_next):
+            head.addWidget(b)
+        titles = QVBoxLayout()
+        titles.setSpacing(0)
+        self.lbl_title = QLabel("DJOS Preview")
+        f = QFont(self.font())
+        f.setPointSizeF(f.pointSizeF() * 1.6)
+        f.setWeight(QFont.Bold)
+        self.lbl_title.setFont(f)
+        self.lbl_title.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.lbl_artist = QLabel("")
+        self.lbl_artist.setStyleSheet("color: #8a919b;")
+        titles.addWidget(self.lbl_title)
+        titles.addWidget(self.lbl_artist)
+        head.addLayout(titles, 1)
+        self.chip_bpm, self.chip_key, self.chip_fmt = Chip(), Chip(), Chip()
+        for c in (self.chip_bpm, self.chip_key, self.chip_fmt):
+            head.addWidget(c)
+        self.lbl_time = QLabel("0:00 / 0:00")
+        tf = QFont("JetBrains Mono")
+        tf.setStyleHint(QFont.Monospace)
+        tf.setPointSizeF(self.font().pointSizeF() * 1.25)
+        self.lbl_time.setFont(tf)
+        self.lbl_time.setMinimumWidth(130)
+        self.lbl_time.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        head.addWidget(self.lbl_time)
+        btn_open = QPushButton(QIcon.fromTheme("document-open-folder"), "Open folder…")
+        btn_open.setFocusPolicy(Qt.NoFocus)
+        btn_open.clicked.connect(self.choose_folder)
+        head.addWidget(btn_open)
+        lay.addLayout(head)
+
+        # aviso (set sonando, errores)
+        self.banner = QLabel("")
+        self.banner.setWordWrap(True)
+        self.banner.setStyleSheet("QLabel { background: #3a2410; border: 1px solid #ff7a1a; border-radius: 6px;"
+                                  " padding: 7px 10px; color: #ffd9b8; }")
+        self.banner.hide()
+        lay.addWidget(self.banner)
+
+        self.wave = WaveView()
+        self.wave.seekRequested.connect(self.seek_to)
+        self.wave.setFixedHeight(170)
+        lay.addWidget(self.wave)
+
+        self.list = QTreeWidget()
+        self.list.setColumnCount(len(COLS))
+        self.list.setHeaderLabels(COLS)
+        self.list.setRootIsDecorated(False)
+        self.list.setUniformRowHeights(True)
+        self.list.setAlternatingRowColors(True)
+        self.list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.list.setAllColumnsShowFocus(True)
+        hdr = self.list.header()
+        hdr.setStretchLastSection(False)
+        hdr.setSectionResizeMode(QHeaderView.Interactive)
+        hdr.setSectionResizeMode(1, QHeaderView.Stretch)
+        for i, wdt in ((0, 44), (2, 230), (3, 60), (4, 56), (5, 64), (6, 190)):
+            self.list.setColumnWidth(i, wdt)
+        self.list.currentItemChanged.connect(self.on_current)
+        self.list.itemActivated.connect(lambda *_: self.play_explicit())
+        self.list.installEventFilter(self)
+        lay.addWidget(self.list, 1)
+
+        self.lbl_help = QLabel("Space play / pause   ·   ↑ ↓ previous / next track   ·   ← → 5 s  (Shift: 30 s)   ·   "
+                               "1-9 jump to 10-90 %   ·   click the waveform to jump   ·   Esc close")
+        self.lbl_help.setStyleSheet("color: #8a919b;")
+        lay.addWidget(self.lbl_help)
+
+        # Espacio va por eventFilter/keyPressEvent (un QShortcut además lo hacía dos veces: pausa y play)
+        s = QShortcut(QKeySequence(Qt.Key_Escape), self)
+        s.setContext(Qt.ApplicationShortcut)
+        s.activated.connect(self.close)
+        QShortcut(QKeySequence.Open, self, activated=self.choose_folder)
+        QShortcut(QKeySequence("Ctrl+Q"), self, activated=self.close)
+
+        self.timer = QTimer(self)
+        self.timer.setInterval(40)
+        self.timer.timeout.connect(self.tick)
+        self.timer.start()
+        self.gigTimer = QTimer(self)
+        self.gigTimer.setInterval(2500)
+        self.gigTimer.timeout.connect(self.check_gig)
+        self.gigTimer.start()
+        self.gig = set_playing()
+        self.refresh_state()
+
+    def _tool(self, icon, tip, fn, big=False):
+        b = QToolButton()
+        b.setIcon(glyph(icon, QColor(20, 10, 2) if big else C_TEXT))
+        b.setToolTip(tip)
+        b.setFocusPolicy(Qt.NoFocus)
+        s = 46 if big else 34
+        b.setIconSize(QSize(s - 14, s - 14))
+        b.setFixedSize(s, s)
+        b.setAutoRaise(not big)
+        if big:
+            b.setStyleSheet("QToolButton { background: #ff7a1a; border-radius: 23px; border: none; }"
+                            "QToolButton:hover { background: #ff9447; }")
+        b.clicked.connect(fn)
+        return b
+
+    # --- abrir -----------------------------------------------------------------------------------------------------
+    def open_paths(self, paths):
+        paths = [os.path.abspath(p) for p in paths if p]
+        paths = [p for p in paths if os.path.exists(p)]
+        if not paths:
+            return False
+        select = None
+        if len(paths) == 1 and os.path.isdir(paths[0]):
+            folder = paths[0]
+            files = self.scan(folder)
+        elif len(paths) == 1:
+            folder = os.path.dirname(paths[0])
+            files = self.scan(folder)
+            select = paths[0]
+            if select not in files:
+                files.insert(0, select)
+        else:   # varios elegidos en Dolphin: esos (y los de las carpetas elegidas)
+            files = []
+            for p in paths:
+                files += self.scan(p) if os.path.isdir(p) else ([p] if self.is_audio(p) else [])
+            folder = os.path.dirname(files[0]) if files else os.path.dirname(paths[0])
+            select = files[0] if files else None
+        self.set_files(folder, files, select, autoplay=select is not None)
+        return True
+
+    @staticmethod
+    def is_audio(p):
+        return os.path.splitext(p)[1].lower() in AUDIO_EXT and not os.path.basename(p).startswith("._")
+
+    def scan(self, folder):
+        try:
+            names = os.listdir(folder)
+        except OSError:
+            return []
+
+        def natural(s):
+            import re
+            return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
+        return [os.path.join(folder, n) for n in sorted(names, key=natural)
+                if self.is_audio(n) and os.path.isfile(os.path.join(folder, n))]
+
+    def set_files(self, folder, files, select=None, autoplay=False):
+        self.prefetch_stop.set()
+        self.list_gen += 1
+        self.folder = folder
+        self.files = files
+        self.tags = {}
+        self.list.blockSignals(True)
+        self.list.clear()
+        for i, f in enumerate(files):
+            it = QTreeWidgetItem([str(i + 1), os.path.splitext(os.path.basename(f))[0], "", "", "", "", ""])
+            it.setData(0, Qt.UserRole, i)
+            for c in (0, 3, 4, 5):
+                it.setTextAlignment(c, Qt.AlignRight | Qt.AlignVCenter)
+            self.list.addTopLevelItem(it)
+        self.list.blockSignals(False)
+        self.setWindowTitle(f"{os.path.basename(folder) or folder} — {APP}")
+        save_config({"folder": folder})
+        if not files:
+            self.current = -1
+            self.player.close()
+            self.wave.clear("No audio files here. Drop a folder on this window or use Open folder… (Ctrl+O)."
+                            if folder else "Open a folder with tracks (Ctrl+O)")
+            self.lbl_title.setText("DJOS Preview")
+            self.lbl_artist.setText(folder)
+            self.refresh_state()
+            return
+        # etiquetas de todos, en segundo plano (el elegido primero)
+        idx = files.index(select) if select in files else 0
+        gen = self.list_gen
+        order = [idx] + [i for i in range(len(files)) if i != idx]
+
+        def tagger():
+            for i in order:
+                if gen != self.list_gen:
+                    return
+                self.tagsReady.emit(gen, files[i], with_names(files[i], read_tags(files[i])))
+        threading.Thread(target=tagger, daemon=True).start()
+        self.explicit = autoplay
+        self.autoplay = autoplay
+        self.list.setCurrentItem(self.list.topLevelItem(idx))
+        self.list.setFocus()
+
+    def choose_folder(self):
+        start = self.folder or music_dir()
+        d = QFileDialog.getExistingDirectory(self, "Open a folder with tracks", start)
+        if d:
+            self.open_paths([d])
+
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+
+    def dropEvent(self, e):
+        self.open_paths([u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()])
+
+    # --- elegir un tema ----------------------------------------------------------------------------------------------
+    def on_current(self, item, _prev):
+        if item is None:
+            return
+        i = item.data(0, Qt.UserRole)
+        if i is None or i == self.current:
+            return
+        self.current = i
+        path = self.files[i]
+        t = self.tags.get(path) or {}
+        self.show_info(path, t)
+        autoplay = getattr(self, "autoplay", False)
+        self.autoplay = False
+        if autoplay and self.gig and not self.player.playing:
+            self.show_banner("A set is playing: DJOS Preview doesn't start by itself. Press Space to listen anyway "
+                             "(it plays on the desktop sound output).")
+            autoplay = False
+        was = self.player.playing
+        self.player.load(path, t.get("duration", 0.0))
+        if autoplay and not was:
+            self.player.play()
+        self.start_wave(path, t.get("duration", 0.0))
+        self.refresh_state()
+
+    def show_info(self, path, t):
+        self.lbl_title.setText(t.get("title") or os.path.splitext(os.path.basename(path))[0])
+        self.lbl_artist.setText(t.get("artist") or os.path.basename(os.path.dirname(path)))
+        self.chip_bpm.set(f"{t['bpm']} BPM" if t.get("bpm") else "")
+        self.chip_key.set(t.get("key", ""))
+        self.chip_fmt.set(t.get("format", ""))
+
+    def on_tags(self, gen, path, t):
+        if gen != self.list_gen:
+            return
+        self.tags[path] = t
+        try:
+            i = self.files.index(path)
+        except ValueError:
+            return
+        it = self.list.topLevelItem(i)
+        if t.get("title"):
+            it.setText(1, t["title"])
+        it.setText(2, t.get("artist", ""))
+        it.setText(3, t.get("bpm", ""))
+        it.setText(4, t.get("key", ""))
+        it.setText(5, fmt_time(t["duration"]) if t.get("duration") else "")
+        it.setText(6, t.get("format", ""))
+        if i == self.current:
+            self.show_info(path, t)
+            if t.get("duration") and not self.player.duration:
+                self.player.duration = t["duration"]
+            if t.get("duration") and not self.wave.duration:
+                self.wave.duration = t["duration"]
+        if len(self.tags) == len(self.files):
+            self.start_prefetch()
+
+    def step(self, d):
+        if not self.files:
+            return
+        i = min(max(0, (self.current if self.current >= 0 else 0) + d), len(self.files) - 1)
+        self.list.setCurrentItem(self.list.topLevelItem(i))
+
+    # --- la onda -------------------------------------------------------------------------------------------------------
+    def start_wave(self, path, duration):
+        if self.wave_job:
+            self.wave_job.cancel()
+            self.wave_job = None
+        self.wave.duration = duration
+        self.t_wave = time.monotonic()
+        cached = load_wave(path)
+        if cached:
+            lo, mi, hi, dur = cached
+            self.wave.set_final(lo, mi, hi, dur or duration)
+            self.player.duration = self.player.duration or dur
+            self.wave_ms = (time.monotonic() - self.t_wave) * 1000
+            log(f"wave cached {self.wave_ms:.0f} ms: {os.path.basename(path)}")
+            return
+        self.wave.clear("Reading the waveform…")
+        job = WaveJob(path, duration)
+        self.wave_job = job
+        first = [True]
+
+        def prog(lo, mi, hi, frac):
+            if first[0]:
+                first[0] = False
+                log(f"wave first paint {(time.monotonic() - self.t_wave) * 1000:.0f} ms: {os.path.basename(path)}")
+            self.waveProgress.emit(path, list(lo), list(mi), list(hi), frac)
+
+        def work():
+            res = job.run(prog)
+            self.waveDone.emit(path, res)
+        threading.Thread(target=work, daemon=True).start()
+
+    def on_wave_progress(self, path, lo, mi, hi, frac):
+        if self.current >= 0 and self.files[self.current] == path:
+            self.wave.set_partial(lo, mi, hi, frac)
+
+    def on_wave_done(self, path, res):
+        if not (self.current >= 0 and self.files[self.current] == path):
+            return
+        if res:
+            lo, mi, hi, dur = res
+            self.wave.set_final(lo, mi, hi, self.wave.duration or dur)
+            if not self.player.duration:
+                self.player.duration = dur
+            log(f"wave done {(time.monotonic() - self.t_wave) * 1000:.0f} ms: {os.path.basename(path)}")
+        elif self.wave.low is None:
+            self.wave.clear("Could not read this file.")
+
+    def start_prefetch(self):
+        """con todas las etiquetas leídas: las ondas del resto de la carpeta, de a una, a la menor prioridad (así
+        moverse con las flechas las muestra al instante). Nunca mientras suena un set."""
+        self.prefetch_stop.set()
+        stop = threading.Event()
+        self.prefetch_stop = stop
+        files = list(self.files)
+        tags = dict(self.tags)
+
+        def work():
+            time.sleep(1.5)
+            for f in files:
+                if stop.is_set():
+                    return
+                if self.gig or load_wave(f):
+                    continue
+                if self.wave_job and self.wave_job.path == f:
+                    continue
+                job = WaveJob(f, (tags.get(f) or {}).get("duration", 0.0))
+                self.prefetch_job = job
+                job.run()
+            log("prefetch done")
+        threading.Thread(target=work, daemon=True).start()
+
+    # --- reproducir -----------------------------------------------------------------------------------------------------
+    def toggle(self):
+        if self.player.playing:
+            self.player.pause()
+        else:
+            self.play_explicit()
+
+    def play_explicit(self):
+        if self.current < 0 and self.files:
+            self.step(0)
+        self.explicit = True
+        self.banner.hide()
+        self.player.play()
+
+    def seek_to(self, sec):
+        self.player.seek(sec)
+        self.wave.set_pos(sec)
+
+    def seek_by(self, d):
+        self.seek_to(self.player.position() + d)
+
+    def eventFilter(self, obj, e):
+        if obj is self.list and e.type() == e.Type.KeyPress:
+            k = e.key()
+            if k == Qt.Key_Space:
+                self.toggle()
+                return True
+            if k in (Qt.Key_Left, Qt.Key_Right):
+                self.seek_by((30 if e.modifiers() & Qt.ShiftModifier else 5) * (1 if k == Qt.Key_Right else -1))
+                return True
+            if Qt.Key_1 <= k <= Qt.Key_9 and self.player.duration > 0:
+                self.seek_to(self.player.duration * (k - Qt.Key_0) / 10)
+                return True
+            if k == Qt.Key_Home:
+                self.seek_to(0)
+                return True
+        return super().eventFilter(obj, e)
+
+    def keyPressEvent(self, e):
+        k = e.key()
+        if k == Qt.Key_Space:
+            self.toggle()
+        elif k in (Qt.Key_Up, Qt.Key_Down):
+            self.step(1 if k == Qt.Key_Down else -1)
+        elif k in (Qt.Key_Left, Qt.Key_Right):
+            self.seek_by((30 if e.modifiers() & Qt.ShiftModifier else 5) * (1 if k == Qt.Key_Right else -1))
+        else:
+            super().keyPressEvent(e)
+
+    def tick(self):
+        pos = self.player.position()
+        self.wave.set_pos(pos)
+        dur = self.player.duration or self.wave.duration
+        self.lbl_time.setText(f"{fmt_time(pos)} / {fmt_time(dur)}")
+
+    def check_gig(self):
+        was = self.gig
+        self.gig = set_playing()
+        if self.gig and not was:
+            self.prefetch_stop.set()
+            if self.player.playing:
+                # empezó un set mientras sonaba la vista previa: se para (y suelta la salida de audio)
+                self.player.pause()
+                self.show_banner("A set started playing: the preview stopped. Press Space to listen anyway.")
+        elif was and not self.gig:
+            self.banner.hide()
+            if len(self.tags) == len(self.files) and self.files:
+                self.start_prefetch()
+
+    def show_banner(self, text):
+        self.banner.setText(text)
+        self.banner.show()
+
+    def refresh_state(self):
+        self.btn_play.setIcon(glyph("media-playback-pause" if self.player.playing else "media-playback-start",
+                                    QColor(20, 10, 2)))
+
+    def closeEvent(self, e):
+        self.prefetch_stop.set()
+        if self.wave_job:
+            self.wave_job.cancel()
+        self.player.close()
+        super().closeEvent(e)
+
+
+def music_dir():
+    try:
+        d = subprocess.run(["xdg-user-dir", "MUSIC"], capture_output=True, text=True, timeout=3).stdout.strip()
+    except Exception:
+        d = ""
+    return d if d and os.path.isdir(d) else os.path.expanduser("~")
+
+
+def load_config():
+    try:
+        with open(CONFIG, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_config(d):
+    try:
+        os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
+        cur = load_config()
+        cur.update(d)
+        with open(CONFIG + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(cur, f)
+        os.replace(CONFIG + ".tmp", CONFIG)
+    except OSError:
+        pass
+
+
+T0 = time.monotonic()
+
+
+def log(msg):
+    if os.environ.get("DJOS_PREVIEW_DEBUG"):
+        print(f"[{(time.monotonic() - T0) * 1000:7.0f} ms] {msg}", file=sys.stderr, flush=True)
+
+
+def dark_palette(app):
+    """Los colores de DJOS (DJOS.colors) también fuera de Plasma"""
+    pal = QPalette()
+    for role, c in ((QPalette.Window, C_BG), (QPalette.WindowText, C_TEXT), (QPalette.Base, C_VIEW),
+                    (QPalette.AlternateBase, C_VIEW_ALT), (QPalette.Text, C_TEXT), (QPalette.Button, QColor(32, 37, 44)),
+                    (QPalette.ButtonText, C_TEXT), (QPalette.Highlight, C_ORANGE), (QPalette.HighlightedText, QColor(20, 10, 2)),
+                    (QPalette.ToolTipBase, QColor(28, 32, 39)), (QPalette.ToolTipText, C_TEXT),
+                    (QPalette.PlaceholderText, C_DIM), (QPalette.Link, C_ORANGE)):
+        pal.setColor(role, c)
+    pal.setColor(QPalette.Disabled, QPalette.Text, C_DIM)
+    pal.setColor(QPalette.Disabled, QPalette.WindowText, C_DIM)
+    pal.setColor(QPalette.Disabled, QPalette.ButtonText, C_DIM)
+    app.setPalette(pal)
+
+
+def main():
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    paths = [QUrl(a).toLocalFile() if a.startswith("file:") else a for a in args]
+    try:
+        os.nice(5)   # la ventana también, un poco por debajo de lo normal
+    except OSError:
+        pass
+    app = QApplication(sys.argv[:1])
+    app.setApplicationName(APP)
+    app.setOrganizationName("DJOS")
+    app.setDesktopFileName("org.djos.preview")
+    if not QIcon.themeName() or QIcon.themeName() == "hicolor":
+        QIcon.setThemeName("Papirus-Dark")
+    dark_palette(app)
+
+    # una sola ventana: si ya hay una abierta, se le pasan los archivos y esta se cierra
+    name = f"djos-preview-{os.getuid()}"
+    sock = QLocalSocket()
+    sock.connectToServer(name)
+    if sock.waitForConnected(300):
+        sock.write(json.dumps(paths or []).encode() + b"\n")
+        sock.waitForBytesWritten(1000)
+        sock.disconnectFromServer()
+        return 0
+    QLocalServer.removeServer(name)
+    server = QLocalServer()
+    server.listen(name)
+
+    w = Window()
+
+    def incoming():
+        c = server.nextPendingConnection()
+        if c is None:
+            return
+
+        def got():
+            if not c.canReadLine():
+                return
+            try:
+                ps = json.loads(bytes(c.readLine()).decode())
+            except ValueError:
+                ps = []
+            if ps:
+                w.open_paths(ps)
+            w.showNormal()
+            w.raise_()
+            w.activateWindow()
+            c.disconnectFromServer()
+        c.readyRead.connect(got)
+    server.newConnection.connect(incoming)
+
+    w.show()
+    if not (paths and w.open_paths(paths)):
+        last = load_config().get("folder")
+        w.open_paths([last if last and os.path.isdir(last) else music_dir()])
+    log("window shown")
+    rc = app.exec()
+    server.close()
+    return rc
+
+
+if __name__ == "__main__":
+    if not shutil.which("ffmpeg"):
+        print("djos preview: ffmpeg is missing (sudo dnf install ffmpeg-free)", file=sys.stderr)
+    sys.exit(main())

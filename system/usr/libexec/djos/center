@@ -298,22 +298,46 @@ class Backend(QObject):
     # --- programas ------------------------------------------------------------------------------------------------
     @Slot(result=str)
     def catalog(self):
+        return json.dumps(catalog())
+
+    @Slot(result=str)
+    def guide(self):
+        """"¿Qué app uso?": cada tarea con sus apps del catálogo (instalada o a un clic)"""
         try:
-            cat = json.loads(read(f"{SHARE}/apps.json", "[]"))
+            tasks = json.loads(read(f"{SHARE}/guide.json", "[]"))
         except ValueError:
-            cat = []
-        flat = set(out(["flatpak", "list", "--columns=application"], timeout=20).split())
-        for a in cat:
-            if a.get("native"):
-                # paquetes de Fedora: los trae el optimizador (recomendados); si alguno falta, se instala con
-                # PackageKit (pkcon, "rpm") y no se ofrece sacarlo
-                a["installed"] = any(os.path.exists(os.path.join(d, a["native"])) for d in
-                                     ("/usr/share/applications", "/usr/local/share/applications"))
-                a["included"] = a["installed"]
-            else:
-                ids = a.get("flatpaks") or [a["flatpak"]]
-                a["installed"] = all(i in flat or any(f.startswith(i + "/") or f == i for f in flat) for i in ids)
-        return json.dumps(cat)
+            tasks = []
+        byname = {a["name"]: a for a in catalog()}
+        for t in tasks:
+            t["apps"] = [byname[n] for n in t.get("apps", []) if n in byname]
+        return json.dumps(tasks)
+
+
+APP_DIRS = ("/usr/share/applications", "/usr/local/share/applications")
+
+
+def catalog():
+    try:
+        cat = json.loads(read(f"{SHARE}/apps.json", "[]"))
+    except ValueError:
+        cat = []
+    flat = set(out(["flatpak", "list", "--columns=application"], timeout=20).split())
+    for a in cat:
+        if a.get("native"):
+            # paquetes de Fedora: los trae el optimizador (recomendados); si alguno falta, se instala con PackageKit
+            # (pkcon, "rpm") y no se ofrece sacarlo. "managed": los trae DJOS (Richie DJ, DJOS Preview)
+            path = next((os.path.join(d, a["native"]) for d in APP_DIRS
+                         if os.path.exists(os.path.join(d, a["native"]))), "")
+            a["installed"] = bool(path)
+            a["included"] = a["installed"]
+            a["path"] = path
+            m = re.search(r"^Icon=(\S+)", read(path), re.M) if path else None
+            if m and a.get("managed"):
+                a["icon"] = m.group(1)   # el ícono que trae el programa (Richie DJ lo instala con su lanzador)
+        else:
+            ids = a.get("flatpaks") or [a["flatpak"]]
+            a["installed"] = all(i in flat or any(f.startswith(i + "/") or f == i for f in flat) for i in ids)
+    return cat
 
 
 def main():
