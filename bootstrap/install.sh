@@ -297,7 +297,8 @@ fi
 # --- 8. limpieza (opcional) ----------------------------------------------------------------------------------------
 step "Apps a DJ PC doesn't need (optional)"
 if [ -x "$LIBEXEC/optimizer-setup" ]; then
-    echo "    DJOS can remove preinstalled apps a DJ PC doesn't use (games, office, mail, remote desktop…)."
+    echo "    DJOS can remove preinstalled extras a DJ PC doesn't use: phone link (KDE Connect), remote desktop,"
+    echo "    AirPlay outputs, crash reporters, old printer drivers, input-method helpers and small unused tools."
     echo "    This is what it would remove:"
     sudo "$LIBEXEC/optimizer-setup" cleanup --dry-run 2>&1 | sed 's/^/      /'
     if ask "Remove them?"; then
