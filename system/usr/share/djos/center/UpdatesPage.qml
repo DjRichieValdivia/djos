@@ -1,5 +1,5 @@
 // Actualizaciones: Fedora (preparadas sin instalar), Richie DJ, DJOS Optimizer, la próxima versión de Fedora y
-// la conexión con GitHub. Todo sale de "/usr/libexec/djos/update status"; buscar e instalar van por pkexec.
+// el acceso a GitHub (solo si una descarga lo pide). Todo sale de "/usr/libexec/djos/update status"; buscar e instalar van por pkexec.
 import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
@@ -43,7 +43,8 @@ PageBase {
         case "updated":     return "Updated to the latest version"
         case "ready":       return "New version downloaded: it installs when you close it"
         case "waiting":     return "New version available: it downloads when you're not playing"
-        case "unreachable": return st.connected ? "Can't check right now (no internet, or this GitHub account has no access)" : "Connect GitHub to get it"
+        case "unreachable": return "Can't check right now (no internet connection?)"
+        case "not-connected": return "This download needs GitHub access: Connect GitHub"
         case "error":       return "The last update failed. Try Check now"
         }
         return "Not checked yet"
@@ -54,7 +55,7 @@ PageBase {
         case "updated":       return "Just updated to " + o.installed
         case "ready":         return "Version " + o.available + " installs when nothing is playing"
         case "waiting":       return "Version " + o.available + " installs after the Fedora updates (Install & restart)"
-        case "not-connected": return "Connect GitHub to get DJOS updates"
+        case "not-connected": return "The DJOS updates need GitHub access: Connect GitHub"
         case "unreachable":   return "Can't check right now" + (o.error ? " (" + o.error + ")" : "")
         case "error":         return "The last update failed" + (o.error ? ": " + o.error : "")
         }
@@ -73,7 +74,7 @@ PageBase {
         Layout.fillWidth: true
         visible: !page.st.connected
         type: Kirigami.MessageType.Warning
-        text: "Connect this PC to GitHub (only once) to get Richie DJ and the DJOS updates. You sign in with your browser; there's nothing to paste."
+        text: "A DJOS download needs GitHub access on this PC (normally none is needed). Connect GitHub once: you sign in with your browser; there's nothing to paste."
         actions: [
             Kirigami.Action {
                 text: "Connect GitHub"
@@ -177,10 +178,14 @@ PageBase {
                 onClicked: djos.launch(["plasma-discover", "--mode", "update"])
             }
         }
+        // las descargas de DJOS son públicas: esta fila aparece solo si una pide permiso, o si la PC tiene un acceso
+        // guardado de antes (se puede renovar)
         StatusRow {
+            visible: !page.st.connected || page.st.account === true
             iconName: "network-connect"
             title: page.st.connected ? "Connected to GitHub" : "Not connected to GitHub"
-            subtitle: "Richie DJ and the DJOS updates are private. Connect again if you changed your GitHub account or it stopped working."
+            subtitle: page.st.connected ? "Richie DJ and the DJOS updates download without an account; this saved sign-in is only used if a download asks for one."
+                                        : "A DJOS download asks for GitHub access. Connect this PC once (you sign in with your browser)."
             QQC2.Button {
                 icon.name: "network-connect"
                 text: page.st.connected ? "Reconnect…" : "Connect…"

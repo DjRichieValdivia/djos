@@ -1,13 +1,14 @@
 #!/usr/bin/bash
-# DJOS Optimizer: conecta esta PC con GitHub (una sola vez) para bajar Richie DJ y las actualizaciones de DJOS, que
-# son privadas. No se pega ningún código secreto: se entra con el navegador (gh, "device flow"). Lo que se guarda para
-# la PC es el mismo token de gh que ya tiene el usuario: además de read:packages trae los permisos mínimos de gh (repo,
-# read:org, gist), así que puede escribir en los repos de la cuenta. Por eso queda solo para root (0600). Uno que sirva
-# solo para leer paquetes necesita una OAuth App propia de DJOS (su client_id) y todavía no existe.
+# DJOS Optimizer: guarda un acceso a GitHub para esta PC. Normalmente NO hace falta: Richie DJ y las actualizaciones
+# de DJOS son públicas (ghcr.io) y se bajan sin cuenta. Sirve si alguna vez una descarga pide permiso (una imagen
+# privada): DJOS Center lo ofrece solo en ese caso. No se pega ningún código secreto: se entra con el navegador (gh,
+# "device flow"). Lo que se guarda para la PC es el mismo token de gh que ya tiene el usuario: además de read:packages
+# trae los permisos mínimos de gh (repo, read:org, gist), así que puede escribir en los repos de la cuenta. Por eso
+# queda solo para root (0600). Las descargas lo usan solo si sin cuenta no anduvo.
 #   connect            (usuario, en una terminal) inicia sesión con gh si hace falta y guarda el acceso de la PC
 #   connect store [u]  (root, vía pkexec) lee el token por la entrada estándar, lo prueba contra ghcr.io y lo guarda
 #                      en /etc/djos/registry-auth.json (0600, formato containers-auth). El token nunca se muestra.
-#   connect status     (usuario) exit 0 si esta PC ya está conectada, 1 si no
+#   connect status     (usuario) exit 0 si esta PC puede bajar las descargas de DJOS (sin cuenta o con la guardada)
 set -u
 AUTH=${DJOS_AUTHFILE:-/etc/djos/registry-auth.json}
 REGISTRY=ghcr.io
@@ -75,7 +76,8 @@ connect_user() {
     echo "Connect GitHub"
     echo "=============="
     echo
-    echo "Richie DJ and the DJOS updates are private on GitHub. This connects this PC to them (only once)."
+    echo "Richie DJ and the DJOS updates are public and normally download without an account. Use this only if"
+    echo "DJOS Center says a download needs GitHub access: it connects this PC to GitHub (only once)."
     echo "Nothing to paste: you sign in to GitHub in your browser and type the code shown below."
     echo
     if [ "${DJOS_SKIP_GITHUB:-0}" = 1 ]; then echo "DJOS_SKIP_GITHUB=1: skipped."; return 0; fi
@@ -117,7 +119,11 @@ connect_user() {
 interactive=false
 case "${1:-}" in
     store) shift; store "$@" ;;
-    status) [ -s "$AUTH" ]; exit $? ;;
+    status)
+        [ -s "$AUTH" ] && exit 0
+        [ -n "${DJOS_OPTIMIZER_IMAGE:-}" ] || exit 1
+        skopeo inspect --retry-times 2 --format '{{.Digest}}' "docker://$DJOS_OPTIMIZER_IMAGE" > /dev/null 2>&1
+        exit $? ;;
     ''|--no-pause)
         [ -t 0 ] && [ "${1:-}" != --no-pause ] && interactive=true
         connect_user; rc=$?

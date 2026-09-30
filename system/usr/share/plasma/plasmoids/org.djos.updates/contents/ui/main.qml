@@ -51,7 +51,8 @@ PlasmoidItem {
         case "updated":     return "Updated to the latest version"
         case "ready":       return "New version downloaded: it installs when you close it"
         case "waiting":     return "New version available: it downloads when you're not playing"
-        case "unreachable": return st.connected ? "Can't check right now (no internet, or no access on GitHub)" : "Connect GitHub to get it"
+        case "unreachable": return "Can't check right now (no internet connection?)"
+        case "not-connected": return "This download needs GitHub access: Connect GitHub"
         case "error":       return "The last update failed. Try Check now"
         }
         return "Not checked yet"
@@ -119,7 +120,7 @@ PlasmoidItem {
             anchors.margins: Kirigami.Units.largeSpacing
             spacing: Kirigami.Units.largeSpacing
 
-            // sin conexión a GitHub: Richie DJ y el optimizador no se pueden bajar
+            // una descarga de DJOS pide permiso (normalmente son públicas) y esta PC no tiene un acceso guardado
             RowLayout {
                 visible: !root.st.connected
                 Layout.fillWidth: true
@@ -127,7 +128,7 @@ PlasmoidItem {
                 PlasmaComponents.Label {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
-                    text: "Connect this PC to GitHub (only once) to get Richie DJ and the DJOS updates."
+                    text: "A DJOS download needs GitHub access. Connect this PC once."
                 }
                 PlasmaComponents.Button {
                     text: "Connect"

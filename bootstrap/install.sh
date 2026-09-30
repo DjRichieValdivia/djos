@@ -3,21 +3,20 @@
 # Se corre una sola vez, como el usuario normal, en Konsole (pide la contraseña con sudo). Se puede volver a correr
 # sin problema: cada paso mira si ya está hecho.
 #
-# Los 3 comandos que escribe el usuario en Konsole (<owner> = la cuenta u organización de GitHub dueña del repo
-# privado DJOS; se puede omitir al final si es la propia cuenta):
-#   sudo dnf install -y gh
-#   gh auth login --web --git-protocol https --skip-ssh-key -s read:packages
-#   gh api -H "Accept: application/vnd.github.raw" repos/<owner>/djos/contents/bootstrap/install.sh > djos-install.sh && bash djos-install.sh <owner>
+# El comando que escribe el usuario en Konsole (<owner> = la cuenta u organización de GitHub dueña del repo DJOS; no
+# hace falta cuenta de GitHub: el repo y las imágenes de ghcr.io son públicos):
+#   curl -fsSL https://raw.githubusercontent.com/<owner>/DJOS/main/bootstrap/install.sh -o djos-install.sh && bash djos-install.sh <owner>
 #
-# Pasos: revisar el sistema → acceso a GitHub (/etc/djos/registry-auth.json) → RPM Fusion free y nonfree →
-# actualizar todo Fedora → instalar djos-optimizer → driver de NVIDIA (si hay una placa NVIDIA) → Richie DJ →
-# preguntar si se sacan programas que una PC de DJ no usa → reiniciar (y la pantalla azul de la clave, "MOK").
+# Pasos: revisar el sistema → las descargas de DJOS (ghcr.io/<owner>, sin cuenta; solo si el registro pide permiso,
+# el inicio de sesión de GitHub de antes: /etc/djos/registry-auth.json) → RPM Fusion free y nonfree → actualizar todo
+# Fedora → instalar djos-optimizer → driver de NVIDIA (si hay una placa NVIDIA) → Richie DJ → preguntar si se sacan
+# programas que una PC de DJ no usa → reiniciar (y la pantalla azul de la clave, "MOK").
 #
 # Solo para pruebas en una VM (nunca hacen falta en una PC de verdad):
 #   DJOS_LOCAL_RPM=/ruta/djos-optimizer.noarch.rpm    instala ese RPM en vez de bajarlo de GitHub
 #   DJOS_OPTIMIZER_SOURCE=oci-archive:/x.tar           baja el RPM de esa imagen (transporte de skopeo)
 #   DJOS_APP_SOURCE=oci-archive:/richiedj.tar          Richie DJ desde esa imagen
-#   DJOS_SKIP_GITHUB=1                                  no usa GitHub para nada
+#   DJOS_SKIP_GITHUB=1                                  no usa GitHub para nada (ni ghcr.io)
 #   DJOS_TEST_FORCE_NVIDIA=1                            hace de cuenta que hay una placa NVIDIA (nvidia-setup)
 set -u
 
@@ -124,12 +123,20 @@ sudo -v < /dev/tty || die "sudo didn't work: your user must be an administrator 
 ( while kill -0 $$ 2> /dev/null; do sudo -n true 2> /dev/null; sleep 50; done ) &
 ok "Administrator rights"
 
-# --- 2. GitHub -----------------------------------------------------------------------------------------------------
-step "Connecting to GitHub (Richie DJ and the DJOS updates are private)"
+# --- 2. las descargas de DJOS --------------------------------------------------------------------------------------
+# El optimizador y Richie DJ son imágenes públicas de ghcr.io: se bajan sin cuenta. Solo si el registro pide permiso
+# (imágenes privadas, como antes) se inicia sesión en GitHub con gh y se guarda el acceso de la PC (/etc/djos)
+step "Checking the DJOS downloads"
 command -v skopeo > /dev/null && command -v jq > /dev/null || sudo dnf5 install -y skopeo jq || die "Could not install skopeo and jq."
-if $skip_github; then
-    info "DJOS_SKIP_GITHUB=1: skipped."
-else
+use_auth=false
+denied() { case "$1" in *unauthorized*|*denied*|*"authentication required"*|*401*|*403*) return 0 ;; esac; return 1; }
+probe() {   # probe <owner> [--authfile …]: ¿está la imagen del optimizador de ese dueño? (sin cuenta, o con la dada)
+    local o=${1,,}
+    shift
+    sudo skopeo inspect "$@" --retry-times 2 --format '{{.Digest}}' "docker://ghcr.io/$o/djos-optimizer:latest" 2>&1
+}
+github_login() {   # el inicio de sesión de GitHub (solo si las descargas piden permiso); deja login y el acceso en $AUTH
+    info "The DJOS downloads ask for a GitHub account: signing in to GitHub (only once)."
     command -v gh > /dev/null || sudo dnf5 install -y gh || die "Could not install gh (the GitHub tool)."
     if ! gh auth status --hostname github.com > /dev/null 2>&1; then
         echo "    Sign in to GitHub: press Enter, your browser opens; type the code shown here and click Authorize."
@@ -152,20 +159,38 @@ else
     fi
     sudo chmod 0600 "$AUTH"
     ok "This PC can download the private packages ($AUTH)"
-    # ¿de quién es DJOS? el argumento, si no la propia cuenta o una de sus organizaciones
-    if [ -z "${DJOS_LOCAL_RPM:-}" ] && [ -z "${DJOS_OPTIMIZER_SOURCE:-}" ]; then
-        if [ -z "$owner" ]; then
-            # shellcheck disable=SC2046  # una organización por palabra
-            for c in "$login" $(gh api user/orgs --jq '.[].login' 2> /dev/null); do
-                if sudo skopeo inspect --authfile "$AUTH" --retry-times 2 --format '{{.Digest}}' \
-                    "docker://ghcr.io/${c,,}/djos-optimizer:latest" > /dev/null 2>&1; then
-                    owner=$c; break
-                fi
-            done
-            [ -n "$owner" ] || die "Could not find the DJOS package on GitHub. Run it again with the owner: bash $0 <owner>"
+}
+if $skip_github; then
+    info "DJOS_SKIP_GITHUB=1: skipped."
+elif [ -n "${DJOS_LOCAL_RPM:-}" ] || [ -n "${DJOS_OPTIMIZER_SOURCE:-}" ]; then
+    info "DJOS Optimizer comes from ${DJOS_LOCAL_RPM:-$DJOS_OPTIMIZER_SOURCE} (test mode)."
+else
+    if [ -z "$owner" ] && command -v gh > /dev/null && gh auth status --hostname github.com > /dev/null 2>&1; then
+        # sin dueño en el comando, pero con gh ya conectado (como antes): la propia cuenta o una de sus organizaciones
+        # shellcheck disable=SC2046  # una organización por palabra
+        for c in $(gh api user --jq .login 2> /dev/null) $(gh api user/orgs --jq '.[].login' 2> /dev/null); do
+            if probe "$c" > /dev/null || { [ -s "$AUTH" ] && probe "$c" --authfile "$AUTH" > /dev/null; }; then
+                owner=$c; break
+            fi
+        done
+    fi
+    [ -n "$owner" ] || die "Say who publishes DJOS: bash $0 <owner> (the name after github.com/ in the DJOS page address)."
+    [[ $owner =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$ ]] || die "'$owner' is not a GitHub account name."
+    owner=${owner,,}
+    if out=$(probe "$owner"); then
+        ok "DJOS downloads from ghcr.io/$owner (public: no GitHub account needed)"
+    elif ! denied "$out"; then
+        die "Could not reach ghcr.io (the DJOS downloads): $(tail -n 1 <<< "$out")"
+    elif [ -s "$AUTH" ] && probe "$owner" --authfile "$AUTH" > /dev/null; then
+        use_auth=true
+        ok "DJOS downloads from ghcr.io/$owner (with this PC's saved GitHub access)"
+    else
+        github_login
+        if ! out=$(probe "$owner" --authfile "$AUTH"); then
+            die "ghcr.io/$owner/djos-optimizer was not found, or this GitHub account can't see it. Check the owner name ($owner): $(tail -n 1 <<< "$out")"
         fi
-        owner=${owner,,}
-        ok "DJOS packages from ghcr.io/$owner"
+        use_auth=true
+        ok "DJOS downloads from ghcr.io/$owner"
     fi
 fi
 
@@ -198,7 +223,7 @@ if [ -z "$rpmfile" ]; then
     if [ -z "$src" ]; then
         $skip_github && die "DJOS_SKIP_GITHUB=1 needs DJOS_LOCAL_RPM or DJOS_OPTIMIZER_SOURCE."
         src="docker://ghcr.io/$owner/djos-optimizer:latest"
-        a=(--authfile "$AUTH")
+        $use_auth && a=(--authfile "$AUTH")
     fi
     work=$(sudo mktemp -d /var/tmp/djos-install.XXXXXX) || die "Could not create a temporary folder."
     sudo skopeo copy -q "${a[@]}" --retry-times 3 "$src" "dir:$work/img" > /dev/null \
@@ -265,7 +290,7 @@ else
         ok "Richie DJ installed ($(cat /opt/richiedj/.djos-version 2> /dev/null))"
     else
         info "Richie DJ could not be installed now. DJOS tries again by itself every few hours"
-        info "(DJOS Center > Updates shows why; Connect GitHub there if it asks)."
+        info "(DJOS Center > Updates shows why.)"
     fi
 fi
 

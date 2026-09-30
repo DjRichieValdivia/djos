@@ -1,5 +1,5 @@
 #!/usr/bin/bash
-# DJOS Optimizer: instala y actualiza Richie DJ (y otros programas privados que llegan como imagen de GitHub).
+# DJOS Optimizer: instala y actualiza Richie DJ (y otros programas que llegan como imagen de contenedor, p. ej. de ghcr.io).
 #   app-update               busca una versión nueva, la baja y la cambia si el programa está cerrado (root)
 #   app-update --progress    lo mismo mostrando el avance de la descarga (primera instalación, en una terminal)
 #   app-update --swap-only   solo cambia a una versión ya bajada, si el programa está cerrado (sin internet)
@@ -40,6 +40,11 @@ apps_list() {
     fi
 }
 
+denied() {   # denied <error de skopeo>: el registro pide permiso (imagen privada, o una que no existe)
+    case "$1" in *unauthorized*|*denied*|*"authentication required"*|*401*|*403*) return 0 ;; esac
+    return 1
+}
+
 ref_of() {   # ref_of <imagen>: la referencia con su transporte (skopeo/podman)
     case "$1" in
         *://*|oci:*|oci-archive:*|docker-archive:*|containers-storage:*|dir:*) echo "$1" ;;
@@ -62,7 +67,8 @@ in_use() {   # $1 carpeta, $2 nombre del proceso
 }
 
 # estado de cada programa para el panel, DJOS Center y el aviso: up-to-date, updated, ready (bajado, se instala al
-# cerrar el programa), waiting (abierto o sonando), unreachable (sin internet o sin permiso), error
+# cerrar el programa), waiting (abierto o sonando), unreachable (sin internet), not-connected (el registro pide permiso
+# y esta PC no tiene uno que sirva), error
 status() {   # status <estado> [versión]
     local v=${2-}
     [ -n "$v" ] || v=$(cat "$dir/.djos-version" 2> /dev/null)
@@ -154,16 +160,20 @@ while read -r name image dir proc <&3; do   # por el 3: lo de adentro no se come
         continue
     fi
 
-    # primero solo se pregunta qué versión hay (sin bajar nada); si es la instalada, no se hace nada más
+    # primero solo se pregunta qué versión hay (sin bajar nada); si es la instalada, no se hace nada más. Sin cuenta
+    # (las imágenes de DJOS son públicas); si el registro pide permiso y esta PC tiene un acceso guardado
+    # (/etc/djos/registry-auth.json, "Connect GitHub"), con ese
     auth=()
-    if [[ $ref == docker://* ]]; then
-        if [ ! -s "$AUTH" ]; then
-            echo "$proc: not connected to GitHub yet (DJOS Center > Updates > Connect GitHub)"
-            status unreachable; continue
-        fi
+    if ! info=$(skopeo inspect --retry-times 2 "$ref" 2>&1) && [[ $ref == docker://* ]] && [ -s "$AUTH" ] \
+        && denied "$info"; then
         auth=(--authfile "$AUTH")
+        info=$(skopeo inspect "${auth[@]}" --retry-times 2 "$ref" 2>&1) || auth=(FAIL)
     fi
-    if ! info=$(skopeo inspect "${auth[@]}" --retry-times 2 "$ref" 2>&1); then
+    if [ "${auth[0]:-}" = FAIL ] || ! jq -e '.Digest' <<< "$info" > /dev/null 2>&1; then
+        if denied "$info"; then
+            echo "$proc: $image needs GitHub access (DJOS Center > Updates > Connect GitHub): $(tail -n 1 <<< "$info")"
+            status not-connected; continue
+        fi
         echo "$proc: could not reach $image: $(tail -n 1 <<< "$info")"
         status unreachable; continue
     fi

@@ -69,7 +69,7 @@ PageBase {
                      : u.system && u.system.state === "error" ? "The last check failed"
                      : u.time > 0 ? "Up to date" : "Not checked yet"
                 subtitle: win.updatesReady ? "Install them when you restart or shut down (from Updates)"
-                        : !u.connected ? "Connect this PC to GitHub once to get Richie DJ and the DJOS updates"
+                        : !u.connected ? "A DJOS download needs GitHub access: connect this PC once"
                         : "DJOS prepares updates by itself, never during a set, and installs them only when you choose"
                 warning: !u.connected || (u.system && u.system.state === "error")
                 QQC2.Button { text: "Open"; flat: true; onClicked: win.go("updates") }

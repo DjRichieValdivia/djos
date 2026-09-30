@@ -11,8 +11,8 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
   the Self-Test, controller helpers and the delivery of Richie DJ.
 - Files owned by `djos-optimizer` (`rpm -ql djos-optimizer`) are replaced on every update: never edit them in place.
   Local changes go in `/etc` (the package's `/etc` files are `%config(noreplace)`) or in the user's home. Permanent
-  changes to DJOS itself are made in its **private** GitHub repo (`gh auth login`, then clone it; the owner is
-  `DJOS_OWNER` in `/usr/share/djos/source.conf`), which builds and publishes the RPM.
+  changes to DJOS itself are made in its GitHub repo `DJOS` (the owner is `DJOS_OWNER` in
+  `/usr/share/djos/source.conf`), which builds and publishes the RPM.
 - `sudo dnf remove djos-optimizer` gives back a plain Fedora (kernel options, services, power profiles and boot
   screen are restored; Richie DJ stays in `/opt/richiedj`; Fedora's desktop comes back at the user's next login
   through the one-time `~/.config/autostart/djos-restore-desktop.desktop`).
@@ -28,8 +28,9 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
   Status: `/usr/libexec/djos/update status` (JSON in `/var/lib/djos/update-status.json`).
 - `gig-guard` (exit 1 = a set is playing: Richie DJ holds `/dev/cpu_dma_latency`) blocks automatic maintenance
   (`dnf-makecache`, `fstrim`, the DJOS updater). Never run big updates while the user may be playing.
-- Private downloads (Richie DJ, the optimizer) use `/etc/djos/registry-auth.json` (root only), created once by
-  `/usr/libexec/djos/connect` (GitHub login in the browser). Never print or copy that token.
+- Richie DJ and the optimizer download anonymously from ghcr.io (public images). Only if a registry asks for access
+  is `/etc/djos/registry-auth.json` (root only, created by `/usr/libexec/djos/connect`, a GitHub login in the
+  browser) used. Never print or copy that token.
 
 ## Installing software
 - GUI apps: **Discover**, `flatpak install flathub <id>`, or `sudo dnf install <pkg>`.
@@ -52,8 +53,8 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
 - Measure: DJOS Self-Test (menu) and `sudo djos-latency-test` (cyclictest, rtla, hwlatdetect, xrun counter; needs
   `realtime-tests rtla stress-ng`).
 
-## Richie DJ (private app)
-- Installed in `/opt/richiedj`, updated from the private image `ghcr.io/<owner>/richiedj:latest` by
+## Richie DJ
+- Installed in `/opt/richiedj`, updated from the image `ghcr.io/<owner>/richiedj:latest` by
   `/usr/libexec/djos/app-update` (only swapped while the app is closed).
 - Settings/library: `~/.config/Richie DJ/`; recordings: `~/Documents/Richie DJ/Recordings/`.
 - Audio output "ALSA Direct" opens the card directly (it asks PipeWire to release it via ReserveDevice1).

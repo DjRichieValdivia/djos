@@ -30,25 +30,19 @@ RPM Fusion keep the system itself up to date. If you remove the package, you get
 You need:
 
 - A fresh **Fedora KDE Plasma Desktop 44** or newer. The Atomic versions (Kinoite) are not supported.
-- An internet connection.
-- A GitHub account that can see this repository.
+- An internet connection. No GitHub account is needed.
 
-Open **Konsole** and type these three commands. Replace `OWNER` with the GitHub account or organization that
+Open **Konsole** and type this command. Replace `OWNER` (twice) with the GitHub account or organization that
 hosts this repository; it's the name that comes after `github.com/` in this page's address.
 
 ```bash
-sudo dnf install -y gh
-gh auth login --web --git-protocol https --skip-ssh-key -s read:packages
-gh api -H "Accept: application/vnd.github.raw" repos/OWNER/DJOS/contents/bootstrap/install.sh > djos-install.sh && bash djos-install.sh OWNER
+curl -fsSL https://raw.githubusercontent.com/OWNER/DJOS/main/bootstrap/install.sh -o djos-install.sh && bash djos-install.sh OWNER
 ```
 
-1. The first command installs the GitHub tool.
-2. The second one shows a one-time code and opens your browser. Paste the code, then click **Authorize**. You
-   don't have to copy any passwords or tokens.
-3. The third one runs the installer. It takes 10 to 40 minutes, depending on your internet speed, and does
-   the following:
+It downloads the installer and runs it (it asks for your password). It takes 10 to 40 minutes, depending on your
+internet speed, and does the following:
    - checks that this is Fedora KDE 44 or newer
-   - saves this PC's access to the DJOS downloads
+   - checks that it can reach the DJOS downloads (they are public)
    - turns on RPM Fusion
    - updates Fedora
    - installs `djos-optimizer`
@@ -56,7 +50,7 @@ gh api -H "Accept: application/vnd.github.raw" repos/OWNER/DJOS/contents/bootstr
    - installs Richie DJ
    - asks whether to remove programs a DJ PC doesn't need
 
-   If anything fails, fix what the message says and run the third command again. It continues where it
+   If anything fails, fix what the message says and run the command again. It continues where it
    stopped. A copy of everything it shows is saved in `~/djos-install.log`.
 
 When it finishes, restart the PC.
@@ -106,7 +100,8 @@ Then restart. This undoes everything DJOS changed:
 - removes its kernel options (and gives back the value you had before for the same option, e.g. `preempt=`)
 - restores Fedora's boot screen, power profiles and services, and removes the Windows entry DJOS added to the
   boot menu
-- deletes the saved GitHub access (`/etc/djos`) and the downloaded Richie DJ update data (about 4 GB)
+- deletes `/etc/djos` (with a saved GitHub access, if this PC ever needed one) and the downloaded Richie DJ update
+  data (about 4 GB)
 - deletes the sample rate and buffer you chose in DJOS Center (Fedora's audio defaults come back)
 - gives you back Fedora's desktop the next time you log in, if you still have the DJOS look
 

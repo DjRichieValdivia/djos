@@ -75,7 +75,11 @@ set_optimizer() {   # set_optimizer <estado> <instalada> <disponible> [error]
         '.optimizer = {state: $s, installed: $i, available: $a, error: $e}'
 }
 
-connected() { [ -s "$AUTH" ]; }   # se puede mirar sin ser root (solo stat)
+# Las descargas de DJOS (el optimizador y Richie DJ en ghcr.io) son públicas: se bajan sin cuenta. Si un registro
+# pidiera permiso (una imagen privada), sirve el acceso guardado de antes (/etc/djos/registry-auth.json, "Connect
+# GitHub"). "connected" = las descargas andan: sin cuenta, o con la guardada; falso solo si la última búsqueda vio que
+# el registro pide permiso y esta PC no tiene uno guardado
+account() { [ -s "$AUTH" ]; }   # se puede mirar sin ser root (solo stat)
 
 status_json() {   # el estado, corregido con lo que se ve ahora (lo corre el usuario: no escribe nada)
     local st pending=false live=false failed=false pid ver target="" cur
@@ -87,9 +91,11 @@ status_json() {   # el estado, corregido con lo que se ve ahora (lo corre el usu
     [ -n "$pid" ] && [ -d "/proc/$pid" ] && live=true
     ver=$(optimizer_version)
     cur=$(sed -n 's/^VERSION_ID=//p' /etc/os-release 2> /dev/null | tr -d '"')
-    jq --argjson pending "$pending" --argjson live "$live" --argjson conn "$(connected && echo true || echo false)" \
+    jq --argjson pending "$pending" --argjson live "$live" --argjson acct "$(account && echo true || echo false)" \
        --argjson failed "$failed" --arg ver "$ver" --arg target "$target" --arg cur "$cur" '
-        .connected = $conn
+        .account = $acct
+        | .connected = ($acct or ((.optimizer.state != "not-connected")
+                                  and ([.apps[]?.state] | index("not-connected") | not)))
         # la versión nueva de Fedora ya bajada (release-upgrade): se instala con "Install & …"
         | if $target != "" then .release.available = $target | .release.ready = true | .release.prepared = true else . end
         # ya se pasó a esa versión (o a una más nueva): no se ofrece más
@@ -236,6 +242,20 @@ registry_state() {   # registry_state <error de skopeo>: not-connected (sin perm
     esac
 }
 
+# inspect_ref <referencia>: skopeo inspect sin cuenta (las imágenes de DJOS son públicas); si el registro pide permiso y
+# esta PC tiene un acceso guardado, con ese. La salida queda en INFO y lo que anduvo en AUTH_ARGS (para bajar después
+# con lo mismo). Un acceso guardado que ya no vale no molesta: primero se prueba sin él
+INFO=""; AUTH_ARGS=()
+inspect_ref() {
+    AUTH_ARGS=()
+    INFO=$(skopeo inspect --retry-times 2 "$1" 2>&1) && return 0
+    if [[ $1 == docker://* ]] && account && [ "$(registry_state "$INFO")" = not-connected ]; then
+        AUTH_ARGS=(--authfile "$AUTH")
+        INFO=$(skopeo inspect "${AUTH_ARGS[@]}" --retry-times 2 "$1" 2>&1) && return 0
+    fi
+    return 1
+}
+
 fetch_rpm() {   # fetch_rpm <origen> <carpeta> [--authfile …]: baja la imagen chiquita del optimizador y dice dónde
                 # quedó el .rpm que trae en /rpm
     local src=$1 dir=$2 l
@@ -263,15 +283,13 @@ update_optimizer() {   # el propio djos-optimizer, desde su imagen privada (o DJ
         else
             set_optimizer up-to-date "$cur" "" "No update source configured"; return 0
         fi
-        if [[ $src == docker://* ]]; then
-            connected || { set_optimizer not-connected "$cur" ""; return 0; }
-            a=(--authfile "$AUTH")
-        fi
-        if ! out=$(skopeo inspect "${a[@]}" --retry-times 2 "$src" 2>&1); then
+        if ! inspect_ref "$src"; then
+            out=$INFO
             echo "DJOS Optimizer: can't check for updates: $(tail -n 1 <<< "$out")"
             set_optimizer "$(registry_state "$out")" "$cur" "" "$(tail -n 1 <<< "$out" | cut -c1-300)"; return 0
         fi
-        avail=$(jq -r '.Labels["org.djos.version"] // empty' <<< "$out" 2> /dev/null)
+        a=("${AUTH_ARGS[@]}")
+        avail=$(jq -r '.Labels["org.djos.version"] // empty' <<< "$INFO" 2> /dev/null)
     fi
     if ! valid_version "$avail"; then
         set_optimizer error "$cur" "" "The update has no valid version"; return 0
@@ -422,7 +440,7 @@ do_check() {
     PREV_SYSTEM=$(read_status | jq -c '.system')
     # si algo corta la búsqueda, no queda "buscando" para siempre
     trap 'rm -f "$RUN/check.pid"; [ "$(read_status | jq -r .system.state)" = checking ] && set_system error 0 "The check was interrupted"' EXIT
-    status_edit --argjson c "$(connected && echo true || echo false)" '.system.state = "checking" | .connected = $c'
+    status_edit '.system.state = "checking"'
     [ -n "${PKEXEC_UID:-}" ] && refresh=(--refresh)   # a pedido del usuario: datos frescos
     if ! online; then
         echo "No internet connection."

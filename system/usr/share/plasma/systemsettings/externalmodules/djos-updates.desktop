@@ -6,5 +6,5 @@ X-KDE-ServiceTypes=SystemSettingsExternalApp
 X-KDE-System-Settings-Parent-Category=djos
 X-KDE-Weight=3
 Name=Updates
-Comment=Fedora, Richie DJ and DJOS updates, and GitHub connection
+Comment=Fedora, Flatpak, Richie DJ and DJOS updates
 X-KDE-Keywords=DJOS,Updates,Richie DJ,GitHub,Fedora upgrade
