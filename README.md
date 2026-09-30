@@ -32,11 +32,10 @@ You need:
 - A fresh **Fedora KDE Plasma Desktop 44** or newer. The Atomic versions (Kinoite) are not supported.
 - An internet connection. No GitHub account is needed.
 
-Open **Konsole** and type this command. Replace `OWNER` (twice) with the GitHub account or organization that
-hosts this repository; it's the name that comes after `github.com/` in this page's address.
+Open **Konsole** and type (or paste) this command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/OWNER/DJOS/main/bootstrap/install.sh -o djos-install.sh && bash djos-install.sh OWNER
+curl -fsSL https://raw.githubusercontent.com/DjRichieValdivia/DJOS/main/bootstrap/install.sh -o djos-install.sh && bash djos-install.sh DjRichieValdivia
 ```
 
 It downloads the installer and runs it (it asks for your password). It takes 10 to 40 minutes, depending on your

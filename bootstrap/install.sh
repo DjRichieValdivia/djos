@@ -3,9 +3,9 @@
 # Se corre una sola vez, como el usuario normal, en Konsole (pide la contraseña con sudo). Se puede volver a correr
 # sin problema: cada paso mira si ya está hecho.
 #
-# El comando que escribe el usuario en Konsole (<owner> = la cuenta u organización de GitHub dueña del repo DJOS; no
-# hace falta cuenta de GitHub: el repo y las imágenes de ghcr.io son públicos):
-#   curl -fsSL https://raw.githubusercontent.com/<owner>/DJOS/main/bootstrap/install.sh -o djos-install.sh && bash djos-install.sh <owner>
+# El comando que escribe el usuario en Konsole (el dueño del repo DJOS va al final; no hace falta cuenta de GitHub:
+# el repo y las imágenes de ghcr.io son públicos):
+#   curl -fsSL https://raw.githubusercontent.com/DjRichieValdivia/DJOS/main/bootstrap/install.sh -o djos-install.sh && bash djos-install.sh DjRichieValdivia
 #
 # Pasos: revisar el sistema → las descargas de DJOS (ghcr.io/<owner>, sin cuenta; solo si el registro pide permiso,
 # el inicio de sesión de GitHub de antes: /etc/djos/registry-auth.json) → RPM Fusion free y nonfree → actualizar todo
