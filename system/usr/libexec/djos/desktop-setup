@@ -7,7 +7,8 @@
 #   2. Richie DJ fijo en la barra cuando la app llega después (una vez; si el usuario lo saca, se respeta)
 #   3. la barra en la pantalla principal (una vez; hasta DJOS 2.2.0 podía quedar en la secundaria)
 #   4. retoques de la barra (una vez cada uno): la bandeja sin el clima (2.2.2) y el menú con la grilla de apps (2.2.4)
-#   5. las ventanas con el semáforo (una vez: la 2.3.0 dejaba la decoración de fábrica de KWin)
+#   5. las ventanas con el semáforo (una vez: la 2.3.0 dejaba la decoración de fábrica de KWin), y los mismos botones
+#      en las apps que dibujan los suyos (Chrome, GTK: una vez, 2.3.3)
 #   6. display-setup: cada monitor nuevo a su frecuencia más alta
 # Para volver al escritorio de Fedora: plasma-apply-lookandfeel -a org.fedoraproject.fedora.desktop --resetLayout
 set -u
@@ -56,6 +57,20 @@ autostart_off() {
 # como en Windows; el tema no los puede cambiar). Lo que el usuario tenga en su propio kwinrc tapa las dos cosas (y el selector de temas
 # ya no podría cambiar la decoración): se saca del archivo. A mano, no con "kwriteconfig6 --delete": eso deja marcas
 # "clave[$d]" que tapan también los valores de abajo y KWin vuelve a los suyos de fábrica (le pasó a la 2.3.0)
+# avisa a KDE que cambiaron claves de un archivo de configuración (la señal de "kwriteconfig6 --notify", sin escribir
+# nada): gtkconfig pasa la posición de los botones a GTK (Chrome, Firefox y las apps GTK dibujan los suyos) y el portal
+# se la da a las apps Flatpak. Las claves van como bytes exactos ("b'...'" de gdbus agrega un 0 al final y no coincide)
+kconfig_notify() {   # kconfig_notify <archivo> <grupo> <clave>...
+    local file=$1 group=$2 k
+    shift 2
+    local args=()
+    for k in "$@"; do
+        # shellcheck disable=SC2207 # un número por byte
+        args+=("${#k}" $(printf '%s' "$k" | od -An -tu1))
+    done
+    busctl --user emit "/$file" org.kde.kconfig.notify ConfigChanged 'a{saay}' 1 "$group" "$#" "${args[@]}" > /dev/null 2>&1
+}
+
 kwin_deco_reset() {
     local f=$cfg/kwinrc
     [ -f "$f" ] || return 0
@@ -77,6 +92,7 @@ if changed:
         fh.writelines(out)
 PY
     busctl --user call org.kde.KWin /KWin org.kde.KWin reconfigure > /dev/null 2>&1
+    kconfig_notify kwinrc org.kde.kdecoration2 ButtonsOnLeft ButtonsOnRight library theme
     return 0
 }
 
@@ -174,6 +190,21 @@ pin_richiedj() {
 # semáforo): se limpian una vez (no necesita Plasma)
 if [ -e "$marker" ] && [ ! -e "$state/kwin-deco-v1" ]; then
     kwin_deco_reset && touch "$state/kwin-deco-v1"
+fi
+# los botones de las apps que dibujan los suyos (Chrome, GTK) seguían a la izquierda después de la 2.3.2: GTK los
+# copia de KWin solo cuando le avisan que cambiaron. Una vez (si kded todavía no arrancó, el aviso no le llega: vuelve
+# a probar en el próximo inicio de sesión hasta que GTK los tenga igual que KWin)
+gtk_buttons() {
+    local want have
+    want=$(kreadconfig6 --file kwinrc --group org.kde.kdecoration2 --key ButtonsOnRight)
+    kconfig_notify kwinrc org.kde.kdecoration2 ButtonsOnLeft ButtonsOnRight
+    sleep 2
+    have=$(sed -n 's/^gtk-decoration-layout=//p' "$cfg/gtk-3.0/settings.ini" 2> /dev/null)
+    # IAX → ":minimize,maximize,close" (lo único que DJOS pone); con otro orden elegido a mano no hay nada que esperar
+    [ "$want" != IAX ] || [ "$have" = ":minimize,maximize,close" ]
+}
+if [ -e "$marker" ] && [ ! -e "$state/gtk-buttons-v1" ]; then
+    gtk_buttons && touch "$state/gtk-buttons-v1"
 fi
 
 # la barra de DJOS (hasta 2.2.0) se armaba en la pantalla del cursor: a la principal, una sola vez. Con un solo

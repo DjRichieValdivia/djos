@@ -88,14 +88,6 @@ def decoration_canvas(active):
     fill = TITLE_ACTIVE if active else TITLE_INACTIVE
     win.paste(Image.new("RGBA", inner.size, fill + (255,)), (S, S), inner)
     img.alpha_composite(win, (PAD_L * S, PAD_T * S))
-    # brillo fino arriba (la luz que tienen las ventanas de macOS en modo oscuro)
-    top_light = Image.new("RGBA", (cw * S, ch * S), (0, 0, 0, 0))
-    tl = ImageDraw.Draw(top_light)
-    tl.rounded_rectangle((S, S, cw * S - S - 1, RADIUS * 2 * S), radius=(RADIUS - 1) * S,
-                         outline=(255, 255, 255, 34 if active else 18), width=S)
-    # solo el borde de arriba: se tapa la parte de abajo del contorno
-    tl.rectangle((0, RADIUS * S, cw * S, ch * S), fill=(0, 0, 0, 0))
-    img.alpha_composite(top_light, (PAD_L * S, PAD_T * S))
     return img, W, H
 
 
