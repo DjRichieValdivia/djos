@@ -192,6 +192,8 @@ while read -r name image dir proc <&3; do   # por el 3: lo de adentro no se come
     # si una vuelta anterior ya bajó y desarmó esta misma versión, se usa directamente
     if ! [ -f "$tmp/.djos-digest" ] || [ "$(cat "$tmp/.djos-digest")" != "$new" ]; then
         [ -d "$dir" ] || echo "$proc: installing (first time, this can take a while)…"
+        # mientras baja (puede ser 1-3 GB), DJOS Center y el ícono de actualizaciones lo dicen: antes seguía "up to date"
+        status downloading "$ver"
         if [[ $ref == containers-storage:* ]]; then
             id=${ref#containers-storage:}
         else

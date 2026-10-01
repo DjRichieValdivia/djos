@@ -41,6 +41,7 @@ PageBase {
         switch (state) {
         case "up-to-date":  return "Up to date"
         case "updated":     return "Updated to the latest version"
+        case "downloading": return "Downloading the new version… (it installs when the app is closed)"
         case "ready":       return "New version downloaded: it installs when you close it"
         case "waiting":     return "New version available: it downloads when you're not playing"
         case "unreachable": return "Can't check right now (no internet connection?)"

@@ -26,7 +26,7 @@ PlasmoidItem {
     readonly property bool checking: busy || sysState === "checking"
     readonly property bool ready: sysState === "ready"
     readonly property var apps: Object.keys(st.apps || {}).map(k => Object.assign({ id: k }, st.apps[k]))
-    readonly property bool appsPending: apps.some(a => a.state === "ready" || a.state === "waiting")
+    readonly property bool appsPending: apps.some(a => a.state === "ready" || a.state === "waiting" || a.state === "downloading")
 
     Plasmoid.icon: ready || appsPending || (st.release && st.release.ready && !st.release.prepared) ? "update-high"
                  : sysState === "error" || !st.connected ? "update-medium" : "update-none"
@@ -49,6 +49,7 @@ PlasmoidItem {
         switch (state) {
         case "up-to-date":  return "Up to date"
         case "updated":     return "Updated to the latest version"
+        case "downloading": return "Downloading the new version… (it installs when the app is closed)"
         case "ready":       return "New version downloaded: it installs when you close it"
         case "waiting":     return "New version available: it downloads when you're not playing"
         case "unreachable": return "Can't check right now (no internet connection?)"
