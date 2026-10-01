@@ -55,7 +55,13 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
   (`allowed-rates = [ 48000 ]`: switching rates reconfigures the card and many cards "pop"; everything else is
   resampled at quality 10). DJOS Center > Audio sets the rate, buffer and an optional "follow the rate of what's
   playing" (bit-perfect, may pop) in `~/.config/pipewire/pipewire.conf.d/60-djos-user.conf` + `pw-metadata`, and
-  shows what each card is running at now (`/proc/asound/card*/pcm*/sub*/hw_params`, owner pid). WirePlumber never
+  shows what each card is running at now (`/proc/asound/card*/pcm*/sub*/hw_params`, owner pid). Audio > Sound cards:
+  the main card (default sink, `priority.session/driver = 3000`) and, per card, a fixed rate / buffer / PipeWire
+  margin while it plays (`node.force-rate`, `node.force-quantum`, `api.alsa.headroom` in
+  `~/.config/wireplumber/wireplumber.conf.d/60-djos-sound-cards.conf`, choices in `~/.config/djos/sound-cards.json`;
+  applying restarts WirePlumber and is refused while a set plays) with the resulting latency (buffer + margin) / rate.
+  `/usr/libexec/djos/audio-now` prints what plays now (per open output: rate, buffer incl. margin, ms, owner, main;
+  `set` while a set plays) for the top-bar widget. WirePlumber never
   suspends ALSA outputs (`52-djos-no-suspend.conf`, `session.suspend-timeout-seconds = 0`: closing/reopening after
   5 s of silence popped on every new sound); webcam microphones (`device.form-factor = "webcam"`) get a low priority
   so the audio interface is the default input (`53-djos-webcam-mic.conf`; a user's own choice still wins). Users are in groups `audio` (rtprio 95, memlock unlimited,
@@ -106,7 +112,9 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
   accent): a transparent top bar (the DJOS logo opens the DJOS Launchpad `org.djos.launchpad`, also Meta and the dock
   tile: full-screen grid from `/usr/libexec/djos/launchpad-apps`, search, pages, drag to reorder, right-click Add to
   Dock / Hide, power buttons; it changes the dock's launchers through `evaluateScript`; the active app's menu
-  `org.kde.plasma.appmenu`, tray, clock) and the DJOS dock `org.djos.dock` (`/usr/share/plasma/plasmoids/
+  `org.kde.plasma.appmenu`, the DJOS Stats widget `org.djos.stats` — audio latency of the output in use, CPU, GPU,
+  RAM, CPU temperature from ksystemstats sensors, "SET" while a set plays; click for details, right-click to choose —,
+  tray, clock) and the DJOS dock `org.djos.dock` (`/usr/share/plasma/plasmoids/
   org.djos.dock`, QML on `org.kde.taskmanager` TasksModel: macOS-style magnification (icons drawn once at full size
   and scaled on the GPU), app name label, running dot / blue pill for the active app, launch bounce, right-click
   menu, drag to reorder or out to remove, drop .desktop files to add, files onto an app to open, onto the trash to

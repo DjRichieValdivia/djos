@@ -22,6 +22,12 @@ from PySide6.QtWidgets import QApplication
 SHARE = "/usr/share/djos/center"
 STATE = "/var/lib/djos"
 PW_USER_CONF = os.path.expanduser("~/.config/pipewire/pipewire.conf.d/60-djos-user.conf")
+# ajustes por placa (Audio > Sound cards): lo elegido (JSON) y la regla de WirePlumber que se arma con eso
+CARDS_JSON = os.path.expanduser("~/.config/djos/sound-cards.json")
+WP_CARDS_CONF = os.path.expanduser("~/.config/wireplumber/wireplumber.conf.d/60-djos-sound-cards.conf")
+ALL_RATES = (44100, 48000, 88200, 96000, 176400, 192000)
+BUFFERS = (32, 64, 128, 256, 512, 1024, 2048)
+HEADROOMS = (0, 64, 128, 256, 512, 1024, 2048)
 PPD_PROFILE = ["org.freedesktop.UPower.PowerProfiles", "/org/freedesktop/UPower/PowerProfiles",
                "org.freedesktop.UPower.PowerProfiles", "ActiveProfile"]
 
@@ -202,6 +208,92 @@ def pw_settings():
     return s
 
 
+def card_rates(n):
+    """las frecuencias que la placa acepta: las USB las dicen en stream*, las de la placa base en su codec"""
+    rates = set()
+    for f in glob.glob(f"/proc/asound/card{n}/stream*"):
+        for m in re.finditer(r"Rates: ([0-9, ]+)", read(f)):
+            rates.update(int(x) for x in re.findall(r"\d+", m.group(1)))
+    if not rates:
+        for f in glob.glob(f"/proc/asound/card{n}/codec#*"):
+            for m in re.finditer(r"^\s*rates \[[^]]*\]: ([0-9 ]+)$", read(f), re.M):
+                rates.update(int(x) for x in m.group(1).split())
+    return sorted(r for r in rates if r in ALL_RATES) or [44100, 48000, 88200, 96000]
+
+
+def pw_nodes():
+    """las salidas y entradas de las placas en PipeWire y las elegidas por defecto (una sola llamada a pw-dump)"""
+    try:
+        dump = json.loads(out(["pw-dump"], timeout=10) or "[]")
+    except ValueError:
+        dump = []
+    defaults = {}
+    nodes = []
+    for o in dump:
+        if o.get("type") == "PipeWire:Interface:Metadata" and (o.get("props") or {}).get("metadata.name") == "default":
+            for m in o.get("metadata") or []:
+                v = m.get("value")
+                if isinstance(v, dict) and "name" in v:
+                    defaults[m.get("key")] = v["name"]
+        if o.get("type") != "PipeWire:Interface:Node":
+            continue
+        p = (o.get("info") or {}).get("props") or {}
+        cls = p.get("media.class")
+        if cls not in ("Audio/Sink", "Audio/Source") or "api.alsa.pcm.card" not in p:
+            continue
+        nodes.append({"id": o.get("id"), "name": p.get("node.name", ""), "kind": "output" if cls == "Audio/Sink" else "input",
+                      "description": p.get("node.description", p.get("node.name", "")), "card": int(p.get("api.alsa.pcm.card")),
+                      "bus": p.get("device.bus", ""), "headroom": int(p.get("api.alsa.headroom", 0) or 0),
+                      "formFactor": p.get("device.form-factor", "")})
+    return nodes, defaults
+
+
+def load_card_settings():
+    try:
+        d = json.loads(read(CARDS_JSON) or "{}")
+    except ValueError:
+        d = {}
+    return d if isinstance(d, dict) else {}
+
+
+def write_card_rules(settings):
+    """la regla de WirePlumber de lo elegido por placa: frecuencia y buffer fijos mientras esa placa suena
+    (node.force-rate / node.force-quantum: sin conversión), el margen de PipeWire (api.alsa.headroom) y la prioridad
+    alta de la principal (gana como salida por defecto)"""
+    blocks = []
+    main = settings.get("main", "")
+    names = set(settings.get("cards", {})) | ({main} if main else set())
+    for name in sorted(names):
+        c = settings.get("cards", {}).get(name, {})
+        props = []
+        if c.get("rate"):
+            props.append(f"node.force-rate = {int(c['rate'])}")
+        if c.get("buffer"):
+            props.append(f"node.force-quantum = {int(c['buffer'])}")
+        if c.get("headroom", -1) >= 0:
+            props.append(f"api.alsa.headroom = {int(c['headroom'])}")
+        if name == main:
+            props += ["priority.session = 3000", "priority.driver = 3000"]
+        if not props or not re.fullmatch(r"[A-Za-z0-9_.:-]+", name):
+            continue
+        blocks.append("  {\n    matches = [ { node.name = \"" + name + "\" } ]\n"
+                      "    actions = { update-props = { " + "  ".join(props) + " } }\n  }")
+    os.makedirs(os.path.dirname(WP_CARDS_CONF), exist_ok=True)
+    if not blocks:
+        if os.path.exists(WP_CARDS_CONF):
+            os.remove(WP_CARDS_CONF)
+        return
+    with open(WP_CARDS_CONF + ".tmp", "w", encoding="utf-8") as f:
+        f.write("# DJOS Center > Audio > Sound cards: lo que elegiste para cada placa. DJOS Center rehace este archivo\n"
+                "# (lo elegido está en ~/.config/djos/sound-cards.json).\nmonitor.alsa.rules = [\n"
+                + "\n".join(blocks) + "\n]\n")
+    os.replace(WP_CARDS_CONF + ".tmp", WP_CARDS_CONF)
+
+
+def set_playing():
+    return subprocess.run(["/usr/libexec/djos/gig-guard"]).returncode == 1
+
+
 class Backend(QObject):
     jobDone = Signal(str, int, str)   # etiqueta, código de salida, salida
 
@@ -270,6 +362,76 @@ class Backend(QObject):
     def _conf_value(self, key, default):
         m = re.search(re.escape(key) + r"\s*=\s*(\d+)", read(PW_USER_CONF))
         return int(m.group(1)) if m else default
+
+    @Slot(result=str)
+    def soundCards(self):
+        """Audio > Sound cards: cada salida con lo que acepta, lo que usa ahora, lo elegido, y la principal; las
+        entradas para elegir la principal; y los valores del sistema (lo que usa una placa sin ajustes propios)"""
+        s = pw_settings()
+        nodes, defaults = pw_nodes()
+        saved = load_card_settings()
+        live = {c["index"]: c for c in sound_cards()}
+        outs, ins = [], []
+        for n in nodes:
+            card = live.get(n["card"], {})
+            item = {"name": n["name"], "description": n["description"], "card": n["card"], "usb": n["bus"] == "usb",
+                    "hdmi": card.get("hdmi", False), "rates": card_rates(n["card"]), "headroom": n["headroom"],
+                    "settings": saved.get("cards", {}).get(n["name"], {}),
+                    "live": card.get("live", {}), "isDefault": defaults.get(
+                        "default.audio.sink" if n["kind"] == "output" else "default.audio.source") == n["name"]}
+            (outs if n["kind"] == "output" else ins).append(item)
+        outs.sort(key=lambda c: (not c["usb"], c["hdmi"], c["card"]))
+        ins.sort(key=lambda c: (not c["usb"], c["card"]))
+        return json.dumps({
+            "systemRate": int(s.get("clock.rate", "48000") or 48000),
+            "systemBuffer": int(s.get("clock.quantum", "256") or 256),
+            "outputs": outs, "inputs": ins, "main": saved.get("main", ""), "set": set_playing(),
+            "rates": list(ALL_RATES), "buffers": list(BUFFERS), "headrooms": list(HEADROOMS),
+        })
+
+    @Slot(str, result=str)
+    def setSoundCards(self, payload):
+        """Guarda lo elegido por placa y lo aplica: reinicia WirePlumber (el audio se corta un instante) y elige la
+        principal como salida por defecto. Nunca con un set sonando. Devuelve "" si salió bien, o el motivo."""
+        if set_playing():
+            return "A set is playing: change sound cards when it ends."
+        try:
+            d = json.loads(payload)
+        except ValueError:
+            return "Invalid settings."
+        settings = {"main": str(d.get("main", "")), "cards": {}}
+        for name, c in (d.get("cards") or {}).items():
+            entry = {}
+            if int(c.get("rate", 0) or 0) in ALL_RATES:
+                entry["rate"] = int(c["rate"])
+            if int(c.get("buffer", 0) or 0) in BUFFERS:
+                entry["buffer"] = int(c["buffer"])
+            if int(c.get("headroom", -1)) in HEADROOMS:
+                entry["headroom"] = int(c["headroom"])
+            if entry:
+                settings["cards"][str(name)] = entry
+        os.makedirs(os.path.dirname(CARDS_JSON), exist_ok=True)
+        with open(CARDS_JSON, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=1)
+        write_card_rules(settings)
+        out(["systemctl", "--user", "restart", "wireplumber.service"], timeout=20)
+        # la principal, como salida por defecto (WirePlumber la recuerda); los nodos tardan un poco en volver
+        main_in = str(d.get("mainInput", ""))
+        for _ in range(20):
+            time.sleep(0.25)
+            nodes, _defaults = pw_nodes()
+            ids = {n["name"]: n["id"] for n in nodes}
+            if not settings["main"] or settings["main"] in ids:
+                break
+        if settings["main"] in ids:
+            out(["wpctl", "set-default", str(ids[settings["main"]])])
+        if main_in in ids:
+            out(["wpctl", "set-default", str(ids[main_in])])
+        try:
+            os.remove(os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "djos-audio-nodes"))   # caché de audio-now
+        except OSError:
+            pass
+        return ""
 
     @Slot(result=str)
     def cards(self):

@@ -2,7 +2,8 @@
 // al armar el escritorio de un usuario nuevo, y "desktop-setup" lo corre una vez por versión del diseño para los
 // usuarios que ya existían (reemplaza las barras que hubiera).
 //   - arriba: el logo de DJOS (el Launchpad: todas las apps en pantalla completa, buscar, ordenar y apagar; también
-//     con la tecla Meta y desde el dock), el menú de la app activa, la bandeja y el reloj
+//     con la tecla Meta y desde el dock), el menú de la app activa, los datos para el DJ (org.djos.stats), la bandeja y
+//     el reloj
 //   - abajo: el dock de DJOS (org.djos.dock: los programas con la lupa de macOS, el Launchpad y la papelera); se
 //     esconde cuando una ventana lo toca y vuelve con el mouse abajo, así no le quita lugar a nada
 // Las dos van en la pantalla principal (la 0 de Plasma); si no, Plasma las pone en la del cursor.
@@ -41,6 +42,9 @@ menu.writeConfig("favorites", ["applications:richiedj.desktop", "applications:or
 if (has("org.kde.plasma.appmenu"))
     bar.addWidget("org.kde.plasma.appmenu");
 bar.addWidget("org.kde.plasma.panelspacer");
+// datos para el DJ: latencia de audio, CPU, GPU, RAM, temperatura y "SET" mientras suena un set
+if (has("org.djos.stats"))
+    bar.addWidget("org.djos.stats");
 
 // bandeja sin el clima (desktop-setup lo saca con panel-tweaks.js: la bandeja arma su lista recién después)
 bar.addWidget("org.kde.plasma.systemtray");

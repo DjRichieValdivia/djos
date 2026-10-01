@@ -1,4 +1,5 @@
-// Audio: placas, frecuencia y buffer de PipeWire, lista de control de tiempo real
+// Audio: las placas (la principal, y para cada una la frecuencia, el buffer y el margen con la latencia que da),
+// los valores por defecto de PipeWire, las controladoras DJ y la lista de control de tiempo real
 import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
@@ -18,6 +19,51 @@ PageBase {
     property string ctlMessage: ""
     property bool ctlBusy: false
     function refresh() { audio = JSON.parse(djos.audio()); controllers = JSON.parse(djos.controllers()) }
+
+    // ---------------------------------------------------------------- placas
+    property var sc: ({ outputs: [], inputs: [], main: "", systemRate: 48000, systemBuffer: 256, set: false })
+    property var choices: ({})      // node.name → { rate, buffer, headroom } (0 / -1 = lo del sistema)
+    property string mainOut: ""
+    property string mainIn: ""
+    property bool scDirty: false
+    property bool scBusy: false
+    property string scMessage: ""
+    function loadCards() {
+        sc = JSON.parse(djos.soundCards())
+        const ch = {}
+        for (const o of sc.outputs) {
+            const st = o.settings || {}
+            ch[o.name] = { rate: st.rate || 0, buffer: st.buffer || 0, headroom: st.headroom !== undefined ? st.headroom : -1 }
+        }
+        choices = ch
+        const mo = sc.outputs.find(o => o.isDefault)
+        const mi = sc.inputs.find(i => i.isDefault)
+        mainOut = mo ? mo.name : ""
+        mainIn = mi ? mi.name : ""
+        scDirty = false
+    }
+    function choose(name, key, value) {
+        const c = Object.assign({}, choices)
+        c[name] = Object.assign({}, c[name] || { rate: 0, buffer: 0, headroom: -1 })
+        c[name][key] = value
+        choices = c
+        scDirty = true
+    }
+    // lo que tarda en salir el sonido por esa placa con esa combinación (buffer + margen de PipeWire)
+    function latency(o) {
+        const c = choices[o.name] || {}
+        const rate = c.rate || sc.systemRate
+        const buf = c.buffer || sc.systemBuffer
+        const hr = c.headroom >= 0 ? c.headroom : o.headroom
+        // el margen de PipeWire se sabe recién cuando la placa se abre (en las USB suele ser 1024)
+        const unknown = c.headroom < 0 && o.headroom === 0 && o.usb
+        return (unknown ? "≥ " : "") + ((buf + hr) / rate * 1000).toFixed(1)
+    }
+    function khz(r) { return (r % 1000 === 0 ? r / 1000 : (r / 1000).toFixed(1)) + " kHz" }
+    function liveOf(cardIndex) {
+        const c = (audio.cards || []).find(x => x.index === cardIndex)
+        return c ? c.live : null
+    }
     Timer { interval: 5000; running: true; repeat: true; onTriggered: page.controllers = JSON.parse(djos.controllers()) }
     // lo que cada placa está usando ahora (cambia cuando un programa la abre o la cierra)
     Timer {
@@ -45,6 +91,7 @@ PageBase {
     }
     Component.onCompleted: {
         refresh()
+        loadCards()
         rateBox.currentIndex = Math.max(0, rates.indexOf(audio.configuredRate))
         bufBox.currentIndex = Math.max(0, quanta.indexOf(audio.configuredQuantum))
         followBox.checked = audio.followRate === true
@@ -52,21 +99,162 @@ PageBase {
 
     Card {
         title: "Sound cards"
+        QQC2.Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            opacity: 0.75
+            text: "The main card is where your apps play. Each card can run at its own sample rate and buffer while it plays (no conversion); the latency is what you hear after you press a key. Richie DJ in “ALSA Direct” mode opens the card with its own settings."
+        }
+        QQC2.ButtonGroup { id: mainGroup }
         Repeater {
-            model: page.audio.cards
-            delegate: StatusRow {
+            model: page.sc.outputs
+            delegate: ColumnLayout {
+                id: cardRow
                 required property var modelData
-                iconName: modelData.usb ? "audio-card" : modelData.hdmi ? "video-display" : "audio-speakers"
-                title: modelData.name
-                subtitle: (modelData.usb ? "USB audio interface or DJ controller: gets top interrupt priority"
-                        : modelData.hdmi ? "Monitor or TV audio (HDMI / DisplayPort)"
-                        : "Motherboard audio") + "\n" + page.liveText(modelData.live)
+                required property int index
+                readonly property var ch: page.choices[modelData.name] || { rate: 0, buffer: 0, headroom: -1 }
+                readonly property bool isMain: page.mainOut === modelData.name
+                Layout.fillWidth: true
+                Layout.topMargin: index > 0 ? Kirigami.Units.largeSpacing : 0
+                spacing: Kirigami.Units.smallSpacing
+
+                Kirigami.Separator { Layout.fillWidth: true; visible: cardRow.index > 0; opacity: 0.5 }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.largeSpacing
+                    QQC2.RadioButton {
+                        QQC2.ButtonGroup.group: mainGroup
+                        checked: cardRow.isMain
+                        onClicked: { page.mainOut = cardRow.modelData.name; page.scDirty = true }
+                        QQC2.ToolTip.visible: hovered
+                        QQC2.ToolTip.text: "Main card: apps play here"
+                    }
+                    Kirigami.Icon {
+                        source: cardRow.modelData.usb ? "audio-card" : cardRow.modelData.hdmi ? "video-display" : "audio-speakers"
+                        implicitWidth: Kirigami.Units.iconSizes.medium
+                        implicitHeight: implicitWidth
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
+                        RowLayout {
+                            QQC2.Label { text: cardRow.modelData.description; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
+                            Rectangle {
+                                visible: cardRow.isMain
+                                radius: height / 2
+                                color: Kirigami.Theme.highlightColor
+                                implicitWidth: mainBadge.implicitWidth + 14
+                                implicitHeight: mainBadge.implicitHeight + 4
+                                QQC2.Label { id: mainBadge; anchors.centerIn: parent; text: "MAIN"; color: Kirigami.Theme.highlightedTextColor; font.pointSize: Kirigami.Theme.smallFont.pointSize; font.weight: Font.Bold }
+                            }
+                        }
+                        QQC2.Label {
+                            readonly property var live: page.liveOf(cardRow.modelData.card)
+                            text: live && live.playback ? "Now: " + page.khz(live.playback.rate) + ", " + live.playback.bits + "-bit, used by " + live.playback.owner
+                                                        : "Not playing right now"
+                            opacity: 0.65
+                            font.pointSize: Kirigami.Theme.smallFont.pointSize
+                        }
+                    }
+                }
+                GridLayout {
+                    Layout.leftMargin: Kirigami.Units.gridUnit * 2
+                    columns: 4
+                    columnSpacing: Kirigami.Units.largeSpacing
+                    rowSpacing: 0
+                    QQC2.Label { text: "Sample rate"; opacity: 0.65; font.pointSize: Kirigami.Theme.smallFont.pointSize }
+                    QQC2.Label { text: "Buffer"; opacity: 0.65; font.pointSize: Kirigami.Theme.smallFont.pointSize }
+                    QQC2.Label { text: "Safety margin"; opacity: 0.65; font.pointSize: Kirigami.Theme.smallFont.pointSize }
+                    QQC2.Label { text: "Latency"; opacity: 0.65; font.pointSize: Kirigami.Theme.smallFont.pointSize }
+                    QQC2.ComboBox {
+                        readonly property var values: [0].concat(cardRow.modelData.rates)
+                        model: values.map(v => v === 0 ? "System (" + page.khz(page.sc.systemRate) + ")" : page.khz(v))
+                        currentIndex: Math.max(0, values.indexOf(cardRow.ch.rate))
+                        onActivated: index => page.choose(cardRow.modelData.name, "rate", values[index])
+                        Layout.preferredWidth: Kirigami.Units.gridUnit * 9
+                    }
+                    QQC2.ComboBox {
+                        readonly property var values: [0].concat(page.sc.buffers || [])
+                        model: values.map(v => v === 0 ? "System (" + page.sc.systemBuffer + ")" : v + " samples")
+                        currentIndex: Math.max(0, values.indexOf(cardRow.ch.buffer))
+                        onActivated: index => page.choose(cardRow.modelData.name, "buffer", values[index])
+                        Layout.preferredWidth: Kirigami.Units.gridUnit * 9
+                    }
+                    QQC2.ComboBox {
+                        readonly property var values: [-1].concat(page.sc.headrooms || [])
+                        model: values.map(v => v === -1 ? "PipeWire (" + (cardRow.modelData.headroom > 0 || !cardRow.modelData.usb ? cardRow.modelData.headroom : "auto") + ")" : v + " samples")
+                        currentIndex: Math.max(0, values.indexOf(cardRow.ch.headroom))
+                        onActivated: index => page.choose(cardRow.modelData.name, "headroom", values[index])
+                        Layout.preferredWidth: Kirigami.Units.gridUnit * 9
+                        QQC2.ToolTip.visible: hovered
+                        QQC2.ToolTip.text: "Extra audio PipeWire keeps ready for this card (USB cards usually get 1024). Less = lower latency; if you hear crackles, go back up."
+                    }
+                    Kirigami.Heading {
+                        level: 4
+                        text: page.latency(cardRow.modelData) + " ms"
+                        font.features: { "tnum": 1 }
+                    }
+                }
             }
         }
         QQC2.Label {
-            visible: page.audio.cards.length === 0
+            visible: page.sc.outputs.length === 0
             text: "No sound cards found."
             opacity: 0.7
+        }
+        RowLayout {
+            Layout.topMargin: Kirigami.Units.largeSpacing
+            visible: page.sc.inputs.length > 0
+            QQC2.Label { text: "Main input" }
+            QQC2.ComboBox {
+                model: page.sc.inputs.map(i => i.description)
+                currentIndex: Math.max(0, page.sc.inputs.findIndex(i => i.name === page.mainIn))
+                onActivated: index => { page.mainIn = page.sc.inputs[index].name; page.scDirty = true }
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 20
+            }
+        }
+        RowLayout {
+            Layout.topMargin: Kirigami.Units.largeSpacing
+            QQC2.Button {
+                icon.name: "dialog-ok-apply"
+                text: page.scBusy ? "Applying…" : "Apply"
+                enabled: page.scDirty && !page.scBusy && !page.sc.set
+                onClicked: {
+                    page.scBusy = true
+                    page.scMessage = ""
+                    Qt.callLater(() => {
+                        const err = djos.setSoundCards(JSON.stringify({ main: page.mainOut, mainInput: page.mainIn, cards: page.choices }))
+                        page.scBusy = false
+                        page.scMessage = err.length > 0 ? err : "Applied."
+                        page.loadCards()
+                        page.refresh()
+                    })
+                }
+            }
+            QQC2.Button {
+                text: "System for all"
+                flat: true
+                onClicked: {
+                    const c = {}
+                    for (const o of page.sc.outputs) c[o.name] = { rate: 0, buffer: 0, headroom: -1 }
+                    page.choices = c
+                    page.scDirty = true
+                }
+            }
+            QQC2.Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                opacity: 0.65
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                text: page.sc.set ? "A set is playing: you can change sound cards when it ends."
+                                  : "Applying restarts the audio for a second."
+                color: page.sc.set ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
+            }
+        }
+        QQC2.Label {
+            visible: page.scMessage.length > 0
+            text: page.scMessage
+            color: page.scMessage === "Applied." ? Kirigami.Theme.positiveTextColor : Kirigami.Theme.negativeTextColor
         }
     }
 
@@ -117,12 +305,12 @@ PageBase {
     }
 
     Card {
-        title: "Desktop audio engine (PipeWire)"
+        title: "Defaults for every card"
         QQC2.Label {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             opacity: 0.75
-            text: "Used by browsers, DAWs and most apps: your card runs at this rate while they play (see “now” above). Richie DJ in “ALSA Direct” mode talks to your card directly with its own rate and buffer, so these settings don’t affect your sets."
+            text: "What every card uses unless it has its own setting above: browsers, DAWs and most apps play through PipeWire at this rate and buffer. Richie DJ in “ALSA Direct” mode talks to your card directly, so these settings don’t affect your sets."
         }
         GridLayout {
             columns: 2

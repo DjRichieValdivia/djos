@@ -1,0 +1,78 @@
+#!/usr/bin/bash
+# DJOS: lo que está sonando ahora, para el widget de la barra de arriba y DJOS Center (una línea JSON, barato: solo lee
+# /proc y, si una placa la tiene PipeWire, sus valores de reloj). Por cada placa abierta para reproducir:
+#   card (nombre), rate (Hz), buffer (muestras), ms (latencia de salida = buffer / frecuencia), owner, bits
+# Si la abrió Richie DJ con "ALSA Direct", el buffer es el suyo (lo que tiene la placa en hw_params); si la tiene
+# PipeWire, es su "quantum" más el margen que PipeWire le deja a esa placa (api.alsa.headroom: en las USB suele ser
+# 1024 muestras) — el buffer de la placa de PipeWire es más grande, pero lo que suena va con ese retraso.
+# set = true mientras suena un set (Richie DJ tiene /dev/cpu_dma_latency abierto: lo mismo que mira gig-guard).
+set -u
+shopt -s nullglob
+
+json_str() { local s=${1//\\/\\\\}; s=${s//\"/\\\"}; printf '"%s"' "$s"; }
+
+pw_rate="" pw_quantum="" pw_nodes=""
+pw_settings() {
+    [ -n "$pw_rate" ] && return 0
+    local m
+    m=$(pw-metadata -n settings 2> /dev/null)
+    pw_rate=$(sed -n "s/.*key:'clock.rate' value:'\([0-9]*\)'.*/\1/p" <<< "$m")
+    pw_quantum=$(sed -n "s/.*key:'clock.force-quantum' value:'\([1-9][0-9]*\)'.*/\1/p" <<< "$m")
+    [ -n "$pw_quantum" ] || pw_quantum=$(sed -n "s/.*key:'clock.quantum' value:'\([0-9]*\)'.*/\1/p" <<< "$m")
+}
+
+# el margen de PipeWire de la salida de cada placa (api.alsa.headroom), lo que DJOS Center le fijó (force-rate /
+# quantum) y cuál es la salida por defecto. Cambia poco: se guarda un minuto (pw-dump + jq es lo único "caro" acá)
+CACHE=${XDG_RUNTIME_DIR:-/tmp}/djos-audio-nodes
+pw_node() {   # pw_node <número de placa> → "headroom forceRate forceQuantum default(0/1)"
+    if [ -z "$pw_nodes" ]; then
+        if [ -n "$(find "$CACHE" -mmin -1 2> /dev/null)" ]; then
+            pw_nodes=$(< "$CACHE")
+        else
+            pw_nodes=$(pw-dump 2> /dev/null | jq -r '
+                ([.[] | select(.type == "PipeWire:Interface:Metadata" and .props."metadata.name" == "default")
+                  | .metadata[]? | select(.key == "default.audio.sink") | .value.name] | first) as $def
+                | .[] | select(.type == "PipeWire:Interface:Node") | .info.props // {}
+                | select(."media.class" == "Audio/Sink" and ."api.alsa.pcm.card" != null)
+                | "\(."api.alsa.pcm.card") \(."api.alsa.headroom" // 0) \(."node.force-rate" // 0) \(."node.force-quantum" // 0) \(if ."node.name" == $def then 1 else 0 end)"' 2> /dev/null)
+            printf '%s\n' "$pw_nodes" > "$CACHE.tmp" 2> /dev/null && mv -f "$CACHE.tmp" "$CACHE"
+        fi
+    fi
+    awk -v c="$1" '$1 == c { print $2, $3, $4, $5; exit }' <<< "$pw_nodes"
+}
+
+out=() names=$(< /proc/asound/cards)
+for sub in /proc/asound/card[0-9]*/pcm*p/sub[0-9]*; do
+    hw=$(< "$sub/hw_params") || continue
+    [ "$hw" = closed ] && continue
+    card=${sub#/proc/asound/card}; card=${card%%/*}
+    name=$(sed -n "s/^ *$card \[.*\]: .* - //p" <<< "$names")
+    rate=$(sed -n 's/^rate: \([0-9]*\).*/\1/p' <<< "$hw")
+    period=$(sed -n 's/^period_size: \([0-9]*\)/\1/p' <<< "$hw")
+    buffer=$(sed -n 's/^buffer_size: \([0-9]*\)/\1/p' <<< "$hw")
+    fmt=$(sed -n 's/^format: \(.*\)/\1/p' <<< "$hw")
+    bits=$(grep -m1 -oE 'Bits: [0-9]+' "/proc/asound/card$card/stream0" 2> /dev/null | grep -oE '[0-9]+')
+    [ -n "$bits" ] || bits=$(grep -oE '[0-9]+' <<< "$fmt" | head -1)
+    pid=$(sed -n 's/^owner_pid *: *\([0-9]*\)/\1/p' "$sub/status")
+    owner=$(cat "/proc/$pid/comm" 2> /dev/null)
+    headroom=0 main=0
+    if [ "$owner" = pipewire ]; then
+        pw_settings
+        read -r headroom force_rate force_q main <<< "$(pw_node "$card")"
+        frames=${pw_quantum:-$period}
+        [ "${force_q:-0}" -gt 0 ] 2> /dev/null && frames=$force_q
+        frames=$(( frames + ${headroom:-0} ))
+    else
+        frames=${buffer:-$period}
+    fi
+    ms=$(awk -v f="${frames:-0}" -v r="${rate:-0}" 'BEGIN { if (r > 0) printf "%.1f", f * 1000 / r; else print 0 }')
+    out+=("{\"card\":$(json_str "$name"),\"index\":$card,\"rate\":${rate:-0},\"buffer\":${frames:-0},\"headroom\":${headroom:-0},\"period\":${period:-0},\"ms\":$ms,\"bits\":${bits:-0},\"owner\":$(json_str "$owner"),\"main\":$([ "${main:-0}" = 1 ] && echo true || echo false)}")
+done
+
+gig=false
+for p in $(fuser /dev/cpu_dma_latency 2> /dev/null); do
+    [ "$(cat "/proc/$p/comm" 2> /dev/null)" = tuned ] || gig=true
+done
+
+IFS=,
+printf '{"set":%s,"outputs":[%s]}\n' "$gig" "${out[*]}"

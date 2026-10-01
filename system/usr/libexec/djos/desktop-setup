@@ -7,7 +7,8 @@
 #      si sube V). El tema clásico (org.djos.desktop, V2) sigue en el selector de temas
 #   2. Richie DJ fijo en la barra cuando la app llega después (una vez; si el usuario lo saca, se respeta)
 #   3. la barra en la pantalla principal (una vez; hasta DJOS 2.2.0 podía quedar en la secundaria)
-#   4. retoques de la barra (una vez cada uno): la bandeja sin el clima (2.2.2) y el menú con la grilla de apps (2.2.4)
+#   4. retoques de la barra (una vez cada uno): la bandeja sin el clima (2.2.2), el menú con la grilla de apps (2.2.4) y
+#      la barra de arriba con los datos para el DJ (2.5)
 #   5. las ventanas con el semáforo (una vez: la 2.3.0 dejaba la decoración de fábrica de KWin), y los mismos botones
 #      en las apps que dibujan los suyos (Chrome, GTK: una vez, 2.3.3)
 #   6. display-setup: cada monitor nuevo a su frecuencia más alta
@@ -34,6 +35,22 @@ plasma_script() {
     busctl --user call org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell evaluateScript s "$script" > /dev/null 2>&1 \
         || gdbus call --session --dest org.kde.plasmashell --object-path /PlasmaShell \
                --method org.kde.PlasmaShell.evaluateScript "$script" > /dev/null 2>&1
+}
+
+# la barra de arriba de DJOS Glass, de nuevo (la parte "barra de arriba" del diseño del tema, sin tocar el dock: así
+# no se pierde lo que el usuario acomodó en él). Solo si la barra de arriba sigue siendo la de DJOS Glass
+topbar_rebuild() {
+    local has bar js
+    grep -qsx 'plugin=org.djos.launchpad' "$cfg/plasma-org.kde.plasma.desktop-appletsrc" || return 0
+    has=$(sed -n '/^function has(type)/,/^}/p' "$layout")
+    bar=$(awk '/^\/\/ -+ barra de arriba/ { f = 1 } /^\/\/ -+ dock/ { f = 0 } f' "$layout")
+    [ -n "$has" ] && [ -n "$bar" ] || return 1
+    js="var old = panels(); for (var i = 0; i < old.length; ++i) if (old[i].location === 'top') old[i].remove();
+$has
+$bar"
+    busctl --user call org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell evaluateScript s "$js" > /dev/null 2>&1 || return 1
+    sleep 6   # la bandeja nueva arma su lista
+    plasma_script /usr/share/djos/panel-tweaks.js
 }
 
 plasma_ready() {
@@ -228,13 +245,16 @@ fi
 # tiene la bandeja
 panel_tweaks=$state/panel-tweaks-v1
 menu_icon=$state/menu-icon-v3
+# la barra de arriba con los datos para el DJ (DJOS 2.5: org.djos.stats), para quien ya tenía DJOS Glass
+topbar_stats=$state/topbar-stats-v1
 
 if [ ! -e "$marker" ] || [ ! -e "$panel_primary" ] || [ ! -e "$panel_tweaks" ] || [ ! -e "$menu_icon" ] || \
+   [ ! -e "$topbar_stats" ] || \
    { [ ! -e "$state/richiedj-pinned" ] && [ -e "$rdj_desktop" ]; }; then
     if plasma_ready; then
         if [ ! -e "$marker" ]; then
             # el diseño nuevo ya pone las barras en la principal, sin el clima y con su propio ícono de menú
-            apply_look && touch "$marker" "$panel_primary" "$panel_tweaks" "$menu_icon" "$state/kwin-deco-v1"
+            apply_look && touch "$marker" "$panel_primary" "$panel_tweaks" "$menu_icon" "$state/kwin-deco-v1" "$topbar_stats"
         fi
         if [ -e "$marker" ] && [ ! -e "$panel_primary" ]; then
             plasma_script /usr/share/djos/panel-to-primary.js && touch "$panel_primary"
@@ -244,6 +264,9 @@ if [ ! -e "$marker" ] || [ ! -e "$panel_primary" ] || [ ! -e "$panel_tweaks" ] |
         fi
         if [ -e "$marker" ] && [ ! -e "$menu_icon" ]; then
             plasma_script /usr/share/djos/menu-icon.js && touch "$menu_icon"
+        fi
+        if [ -e "$marker" ] && [ ! -e "$topbar_stats" ]; then
+            topbar_rebuild && touch "$topbar_stats"
         fi
         if [ -e "$marker" ] && [ ! -e "$state/richiedj-pinned" ] && [ -e "$rdj_desktop" ]; then
             pin_richiedj

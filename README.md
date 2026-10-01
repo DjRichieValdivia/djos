@@ -13,13 +13,14 @@ RPM Fusion keep the system itself up to date. If you remove the package, you get
 - **NVIDIA**: installs the driver from RPM Fusion and sets up the Secure Boot key for you. You see one blue
   confirmation screen at the next restart.
 - **DJOS look**: the **DJOS Glass** theme: a transparent top bar with the DJOS Launchpad (all your apps, search,
-  arrange and hide them, add them to the dock) and the menu of the active app, the DJOS dock with the Mac zoom effect
+  arrange and hide them, add them to the dock), the menu of the active app and the numbers a DJ wants to see (audio
+  latency, CPU, GPU, RAM, temperature, and SET while you play), the DJOS dock with the Mac zoom effect
   (drag apps in, out or around; it hides when a window touches it, so you keep the whole screen), dark glass windows
   with colored round buttons on the right (Windows order), rounded menus and matching app icons in macOS blue,
   smooth and fast animations (Mac-style interface, nothing from Apple inside).
   Papirus Dark icons, the Inter font, wallpapers, and DJOS boot, login and lock screens. The
   classic DJOS theme is still in the theme picker. Each monitor runs at its highest refresh rate.
-- **DJOS Center**: sound cards, sample rate and buffer, a real-time checklist, performance, updates, apps and
+- **DJOS Center**: sound cards (the main one, and the sample rate, buffer and resulting latency of each), sample rate and buffer, a real-time checklist, performance, updates, apps and
   plugins, **Which App?** (what to use for each job: cut a track, fix tags, record a set…) and music disks. It also
   appears in System Settings under DJOS.
 - **DJOS Preview**: listen to tracks instantly. Right-click tracks or a folder in Dolphin > **Preview (DJOS)**, or

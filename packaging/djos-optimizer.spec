@@ -70,6 +70,8 @@ Requires:       papirus-icon-theme-dark
 # kdeplasma-addons (sin él, el dock queda sin ese botón)
 Requires:       aurorae
 Recommends:     kdeplasma-addons
+# DJOS Stats (barra de arriba): los sensores de CPU, GPU, RAM y temperatura son los de ksystemstats (trae libksysguard)
+Requires:       ksystemstats
 # optimizer-setup corre en %%post, %%preun y %%posttrans: sus herramientas tienen que estar instaladas antes
 # y no irse antes que nosotros al desinstalar
 Requires(pre):  coreutils
