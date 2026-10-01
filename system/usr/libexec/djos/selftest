@@ -41,6 +41,12 @@ else echo "  [..]   sample rate follows what's playing: the card may pop when it
 [ "$(kreadconfig6 --file plasmaparc --group General --key AudioFeedback 2>/dev/null)" = false ] \
     && pass "no test sound when the volume changes" \
     || bad "Plasma plays a test sound on every volume change (System Settings > Sound > Play audio feedback)"
+# conectar un USB (pendrive, controladora) hacía "bip" por la placa principal, o sea por los parlantes
+a=$(kreadconfig6 --file plasma_workspace.notifyrc --group Event/deviceAdded --key Action 2>/dev/null)
+case "|${a:-Popup|Sound}|" in
+    *"|Sound|"*) bad "plugging in a USB device plays a sound through your speakers (System Settings > Notifications > Applications > Plasma Workspace)" ;;
+    *) pass "no system sounds through the speakers (USB plugged in, dialogs, charger)" ;;
+esac
 # una webcam en el mismo controlador USB que la placa de audio le saca ancho de banda (cortes con la cámara prendida)
 for c in /proc/asound/card[0-9]*; do
     [ -f "$c/usbbus" ] || continue

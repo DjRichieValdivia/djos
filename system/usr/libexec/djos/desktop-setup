@@ -189,6 +189,36 @@ PY
     return 0
 }
 
+# Sin sonidos del sistema (una vez por usuario, DJOS 2.5.4): salen por la placa principal, que en una PC de DJ son los
+# parlantes. Conectar o sacar un USB (un pendrive, la controladora), un cuadro de diálogo, enchufar el cargador o
+# vaciar la papelera hacían "bip" en pleno set. Los avisos en pantalla quedan; solo se saca el sonido de cada evento.
+# Va en el .notifyrc de cada usuario (el del sistema es de Plasma); un evento que el usuario ya configuró se respeta,
+# y se puede volver a prender en Configuración > Notificaciones > Aplicaciones
+quiet_events() {
+    local spec file ev def act
+    [ -e "$state/quiet-events-v1" ] && return 0
+    for spec in \
+        "plasma_workspace:deviceAdded,deviceRemoved,messageInformation,messageWarning,messageCritical,messageQuestion,beep,Trash: emptied,warning,fatalerror,catastrophe,printerror" \
+        "devicenotifications:safelyRemovable" \
+        "powerdevil:pluggedin,unplugged,lowbattery,criticalbattery,lowperipheralbattery" \
+        "polkit-kde-authentication-agent-1:authenticate" "kwrited:NewMessage" "oom_notifier:catastrophe"; do
+        file=${spec%%:*}
+        def=/usr/share/knotifications6/$file.notifyrc
+        [ -f "$def" ] || continue
+        local IFS=,
+        for ev in ${spec#*:}; do
+            [ -n "$(kreadconfig6 --file "$cfg/$file.notifyrc" --group "Event/$ev" --key Action)" ] && continue
+            act=$(awk -v g="[Event/$ev]" '$0 == g { f = 1; next } /^\[/ { f = 0 } f && /^Action=/ { sub(/^Action=/, ""); print; exit }' "$def")
+            case "|$act|" in *"|Sound|"*) ;; *) continue ;; esac
+            act=$(printf '%s' "$act" | tr '|' '\n' | grep -vx Sound | paste -sd'|')
+            kwriteconfig6 --file "$cfg/$file.notifyrc" --group "Event/$ev" --key Action "${act:-None}"
+        done
+        unset IFS
+    done
+    touch "$state/quiet-events-v1"
+}
+quiet_events
+
 # Dolphin (una vez por usuario, DJOS 2.2): las carpetas se abren en vista de detalles con tamaño y fecha (una carpeta
 # de música se lee como una lista, no como íconos grandes). Es el valor por defecto de Dolphin para las carpetas que
 # todavía no tienen uno propio; si el usuario ya eligió uno (el archivo existe), se respeta. Las columnas de título,

@@ -71,7 +71,9 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
   5 s of silence popped on every new sound); webcam microphones (`device.form-factor = "webcam"`) get a low priority
   so the audio interface is the default input (`53-djos-webcam-mic.conf`; a user's own choice still wins). Users are in groups `audio` (rtprio 95, memlock unlimited,
   `/etc/security/limits.d/95-djos-audio.conf`) and `pipewire`; `snd_hda_intel power_save=0`; USB audio devices never
-  autosuspend (`90-djos-audio.rules`); no volume-change "blip" (`/etc/xdg/plasmaparc` `AudioFeedback=false`).
+  autosuspend (`90-djos-audio.rules`); no volume-change "blip" (`/etc/xdg/plasmaparc` `AudioFeedback=false`); no system event sounds (USB device
+  added/removed, dialogs, charger, trash…: `desktop-setup` drops `Sound` from those events once per user in
+  `~/.config/<app>.notifyrc`, keeping the popups; a user's own setting wins).
 - No background mail/calendar engine: `desktop-setup` turns off the `org.kde.kalendarac` autostart for each user (it
   started Akonadi with MySQL and ~15 agents, >1 GB RAM, at every login); opening KMail/KOrganizer still starts it.
   `djos.menu` also hides the KDE PIM helper tools (theme editors, import/export, Sieve, KTnef, GnuPG log).
