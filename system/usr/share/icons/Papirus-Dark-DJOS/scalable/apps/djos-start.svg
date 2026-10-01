@@ -1,0 +1,15 @@
+<!-- DJOS: ícono del menú de la barra (la grilla de apps de Papirus, más grande: ocupa casi todo el cuadro) -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+ <defs>
+  <style id="current-color-scheme" type="text/css">.ColorScheme-Text { color:#dfdfdf; }</style>
+ </defs>
+  <rect class="ColorScheme-Text" style="fill:currentColor" x="2.00" y="2.00" width="5.6" height="5.6" rx="1.3"/>
+  <rect class="ColorScheme-Text" style="fill:currentColor" x="9.20" y="2.00" width="5.6" height="5.6" rx="1.3"/>
+  <rect class="ColorScheme-Text" style="fill:currentColor" x="16.40" y="2.00" width="5.6" height="5.6" rx="1.3"/>
+  <rect class="ColorScheme-Text" style="fill:currentColor" x="2.00" y="9.20" width="5.6" height="5.6" rx="1.3"/>
+  <rect class="ColorScheme-Text" style="fill:currentColor" x="9.20" y="9.20" width="5.6" height="5.6" rx="1.3"/>
+  <rect class="ColorScheme-Text" style="fill:currentColor" x="16.40" y="9.20" width="5.6" height="5.6" rx="1.3"/>
+  <rect class="ColorScheme-Text" style="fill:currentColor" x="2.00" y="16.40" width="5.6" height="5.6" rx="1.3"/>
+  <rect class="ColorScheme-Text" style="fill:currentColor" x="9.20" y="16.40" width="5.6" height="5.6" rx="1.3"/>
+  <rect class="ColorScheme-Text" style="fill:currentColor" x="16.40" y="16.40" width="5.6" height="5.6" rx="1.3"/>
+</svg>

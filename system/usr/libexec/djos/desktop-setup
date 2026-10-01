@@ -5,7 +5,7 @@
 #      completa. Si después el usuario cambia algo, se respeta (solo se vuelve a aplicar si sube V).
 #   2. Richie DJ fijo en la barra cuando la app llega después (una vez; si el usuario lo saca, se respeta)
 #   3. la barra en la pantalla principal (una vez; hasta DJOS 2.2.0 podía quedar en la secundaria)
-#   4. retoques de la barra (una vez cada uno): la bandeja sin el clima (2.2.2) y el menú con la grilla de apps (2.2.3)
+#   4. retoques de la barra (una vez cada uno): la bandeja sin el clima (2.2.2) y el menú con la grilla de apps (2.2.4)
 #   5. display-setup: cada monitor nuevo a su frecuencia más alta
 # Para volver al escritorio de Fedora: plasma-apply-lookandfeel -a org.fedoraproject.fedora.desktop --resetLayout
 set -u
@@ -147,7 +147,7 @@ fi
 # retoques de la barra (panel-tweaks.js, menu-icon.js): también después de armar la barra nueva, que recién ahí
 # tiene la bandeja
 panel_tweaks=$state/panel-tweaks-v1
-menu_icon=$state/menu-icon-v2
+menu_icon=$state/menu-icon-v3
 
 if [ ! -e "$marker" ] || [ ! -e "$panel_primary" ] || [ ! -e "$panel_tweaks" ] || [ ! -e "$menu_icon" ] || \
    { [ ! -e "$state/richiedj-pinned" ] && [ -e "$rdj_desktop" ]; }; then
