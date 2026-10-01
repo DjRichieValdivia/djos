@@ -91,8 +91,8 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
 - Global theme `org.djos.glass` "DJOS Glass" (the default since 2.3: Mac-style interface only, no Apple assets): top
   bar (DJOS menu, the active app's menu `org.kde.plasma.appmenu`, tray, clock) and a floating centered dock
   (Richie DJ first, Launchpad `kickerdash`, trash); colors `DJOSGlass`; window decoration Aurorae v2
-  `__aurorae__svg__DJOSGlass` (`/usr/share/aurorae/themes/DJOSGlass`, traffic lights on the left: `ButtonsOnLeft=XIA`
-  in `/etc/xdg/kwinrc`, which is global for every theme); magic lamp minimize. The classic `org.djos.desktop` stays
+  `__aurorae__svg__DJOSGlass` (`/usr/share/aurorae/themes/DJOSGlass`, colored round buttons on the right in Windows
+  order: `ButtonsOnRight=IAX` in `/etc/xdg/kwinrc`, which is global for every theme); magic lamp minimize. The classic `org.djos.desktop` stays
   in the theme picker. Icons `Papirus-Dark-DJOS` (orange folders), fonts Inter / JetBrains Mono, wallpapers
   `/usr/share/wallpapers/DJOS*`, splash, Plymouth theme `djos`. Art: `branding/gen-glass.py` (decoration, wallpaper,
   previews) and `branding/gen-links.sh` (icon links). `djos-desktop.service` (user) applies the look once per user

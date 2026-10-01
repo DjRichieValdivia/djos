@@ -160,7 +160,7 @@ repo (a pre-push hook blocks personal data). Tokens are never printed; they only
 
 Own files only (never modify files owned by other packages): look-and-feel `org.djos.glass` (DJOS Glass, the
 default since 2.3: top bar with the global menu + floating dock, `DJOSGlass.colors`, Aurorae v2 decoration
-`/usr/share/aurorae/themes/DJOSGlass` with traffic lights; the art comes from `branding/gen-glass.py`) and the
+`/usr/share/aurorae/themes/DJOSGlass` with colored round buttons on the right, Windows order `IAX`; the art comes from `branding/gen-glass.py`) and the
 classic `org.djos.desktop` + `DJOS.colors`,
 own icon theme `Papirus-Dark-DJOS` (a complete symlink mirror of Papirus-Dark with orange folders, built by
 `branding/gen-links.sh`; it must stay complete because KIconLoader shortens a name inside each theme before trying

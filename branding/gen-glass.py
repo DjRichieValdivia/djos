@@ -263,8 +263,8 @@ def preview(W, H, wall):
     d.rounded_rectangle((wx + 1, wy + 1, wx + ww - 1, wy + 44 * k), radius=11 * k, fill=TITLE_ACTIVE + (255,))
     d.rectangle((wx + 1, wy + 30 * k, wx + ww - 1, wy + 44 * k), fill=TITLE_ACTIVE + (255,))
     d.line((wx + 1, wy + 44 * k, wx + ww - 1, wy + 44 * k), fill=(24, 24, 26, 255), width=max(1, int(k)))
-    for i, c in enumerate(("#ff5f57", "#febc2e", "#28c840")):
-        cx, cy, r = wx + (22 + i * 20) * k, wy + 22 * k, 6.5 * k
+    for i, c in enumerate(("#febc2e", "#28c840", "#ff5f57")):   # a la derecha, como en Windows (ButtonsOnRight=IAX)
+        cx, cy, r = wx + ww - (62 - i * 20) * k, wy + 22 * k, 6.5 * k
         d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=c)
     # barra lateral y lista, como un explorador de archivos
     d.rectangle((wx + 1, wy + 45 * k, wx + 190 * k, wy + wh - 1), fill=(36, 36, 38, 255))

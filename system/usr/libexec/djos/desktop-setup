@@ -52,8 +52,8 @@ autostart_off() {
     mkdir -p "$cfg/autostart" && printf '[Desktop Entry]\nType=Application\nName=%s\nHidden=true\n' "${1%.desktop}" > "$f"
 }
 
-# ventanas: el tema deja la decoración en ~/.config/kdedefaults y los botones vienen de /etc/xdg/kwinrc (a la izquierda;
-# el tema no los puede cambiar). Lo que el usuario tenga en su propio kwinrc tapa las dos cosas (y el selector de temas
+# ventanas: el tema deja la decoración en ~/.config/kdedefaults y los botones vienen de /etc/xdg/kwinrc (a la derecha,
+# como en Windows; el tema no los puede cambiar). Lo que el usuario tenga en su propio kwinrc tapa las dos cosas (y el selector de temas
 # ya no podría cambiar la decoración): se saca del archivo. A mano, no con "kwriteconfig6 --delete": eso deja marcas
 # "clave[$d]" que tapan también los valores de abajo y KWin vuelve a los suyos de fábrica (le pasó a la 2.3.0)
 kwin_deco_reset() {
