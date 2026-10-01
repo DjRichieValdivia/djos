@@ -1,0 +1,14 @@
+{
+    "KPlugin": {
+        "Authors": [ { "Name": "DJOS" } ],
+        "Category": "Windows and Tasks",
+        "Description": "The name of the app in use, in bold, before its menu (like on a Mac); click it to hide or quit the app",
+        "Icon": "window",
+        "Id": "org.djos.appname",
+        "License": "GPL-2.0-or-later",
+        "Name": "DJOS App Name",
+        "Version": "1.0"
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

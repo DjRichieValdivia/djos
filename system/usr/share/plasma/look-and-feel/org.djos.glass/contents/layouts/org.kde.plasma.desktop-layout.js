@@ -2,7 +2,7 @@
 // al armar el escritorio de un usuario nuevo, y "desktop-setup" lo corre una vez por versión del diseño para los
 // usuarios que ya existían (reemplaza las barras que hubiera).
 //   - arriba: el logo de DJOS (el Launchpad: todas las apps en pantalla completa, buscar, ordenar y apagar; también
-//     con la tecla Meta y desde el dock), el menú de la app activa, los datos para el DJ (org.djos.stats), la bandeja y
+//     con la tecla Meta y desde el dock), el nombre y el menú de la app activa, los datos para el DJ (org.djos.stats), la bandeja y
 //     el reloj
 //   - abajo: el dock de DJOS (org.djos.dock: los programas con la lupa de macOS, el Launchpad y la papelera); se
 //     esconde cuando una ventana lo toca y vuelve con el mouse abajo, así no le quita lugar a nada
@@ -38,7 +38,9 @@ menu.writeConfig("favorites", ["applications:richiedj.desktop", "applications:or
                                "applications:org.kde.konsole.desktop", "applications:systemsettings.desktop",
                                "applications:org.kde.discover.desktop"]);
 
-// el menú de la app activa (Archivo, Editar…), como la barra de menús de macOS
+// el nombre de la app activa en negrita y su menú (Archivo, Editar…), como la barra de menús de macOS
+if (has("org.djos.appname"))
+    bar.addWidget("org.djos.appname");
 if (has("org.kde.plasma.appmenu"))
     bar.addWidget("org.kde.plasma.appmenu");
 bar.addWidget("org.kde.plasma.panelspacer");

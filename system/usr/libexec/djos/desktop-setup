@@ -255,16 +255,19 @@ fi
 # tiene la bandeja
 panel_tweaks=$state/panel-tweaks-v1
 menu_icon=$state/menu-icon-v3
-# la barra de arriba con los datos para el DJ (DJOS 2.5: org.djos.stats), para quien ya tenía DJOS Glass
+# la barra de arriba con los datos para el DJ (DJOS 2.5: org.djos.stats) y el nombre de la app activa (2.5.2:
+# org.djos.appname), para quien ya tenía DJOS Glass: se rearma una vez con lo que trae el diseño
 topbar_stats=$state/topbar-stats-v1
+topbar_appname=$state/topbar-appname-v1
 
 if [ ! -e "$marker" ] || [ ! -e "$panel_primary" ] || [ ! -e "$panel_tweaks" ] || [ ! -e "$menu_icon" ] || \
-   [ ! -e "$topbar_stats" ] || \
+   [ ! -e "$topbar_stats" ] || [ ! -e "$topbar_appname" ] || \
    { [ ! -e "$state/richiedj-pinned" ] && [ -e "$rdj_desktop" ]; }; then
     if plasma_ready; then
         if [ ! -e "$marker" ]; then
             # el diseño nuevo ya pone las barras en la principal, sin el clima y con su propio ícono de menú
-            apply_look && touch "$marker" "$panel_primary" "$panel_tweaks" "$menu_icon" "$state/kwin-deco-v1" "$topbar_stats"
+            apply_look && touch "$marker" "$panel_primary" "$panel_tweaks" "$menu_icon" "$state/kwin-deco-v1" "$topbar_stats" \
+                "$topbar_appname"
         fi
         if [ -e "$marker" ] && [ ! -e "$panel_primary" ]; then
             plasma_script /usr/share/djos/panel-to-primary.js && touch "$panel_primary"
@@ -275,8 +278,8 @@ if [ ! -e "$marker" ] || [ ! -e "$panel_primary" ] || [ ! -e "$panel_tweaks" ] |
         if [ -e "$marker" ] && [ ! -e "$menu_icon" ]; then
             plasma_script /usr/share/djos/menu-icon.js && touch "$menu_icon"
         fi
-        if [ -e "$marker" ] && [ ! -e "$topbar_stats" ]; then
-            topbar_rebuild && touch "$topbar_stats"
+        if [ -e "$marker" ] && { [ ! -e "$topbar_stats" ] || [ ! -e "$topbar_appname" ]; }; then
+            topbar_rebuild && touch "$topbar_stats" "$topbar_appname"
         fi
         if [ -e "$marker" ] && [ ! -e "$state/richiedj-pinned" ] && [ -e "$rdj_desktop" ]; then
             pin_richiedj

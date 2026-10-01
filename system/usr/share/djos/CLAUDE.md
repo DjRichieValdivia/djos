@@ -116,7 +116,9 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
 - Global theme `org.djos.glass` "DJOS Glass" (the default since 2.3: Mac-style interface only, no Apple assets, blue
   accent): a transparent top bar (the DJOS logo opens the DJOS Launchpad `org.djos.launchpad`, also Meta and the dock
   tile: full-screen grid from `/usr/libexec/djos/launchpad-apps`, search, pages, drag to reorder, right-click Add to
-  Dock / Hide, power buttons; it changes the dock's launchers through `evaluateScript`; the active app's menu
+  Dock / Hide, power buttons; it changes the dock's launchers through `evaluateScript`; its button is the plasmoid's
+  *full* representation, shown inline: as a compact one Plasma 6.7 drew nothing), the active app's name in bold
+  `org.djos.appname` (TasksModel activeTask; click: Hide / Quit every window of that app) and its menu
   `org.kde.plasma.appmenu`, the DJOS Stats widget `org.djos.stats` — audio latency of the output in use (Richie DJ's
   own latency and a DROPS counter, red for a minute after a new dropout, while Richie DJ is open), CPU, GPU, RAM, CPU
   temperature from ksystemstats sensors, "SET" while a set plays; click for details, right-click to choose —,

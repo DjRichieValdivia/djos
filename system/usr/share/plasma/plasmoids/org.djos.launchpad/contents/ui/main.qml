@@ -18,7 +18,11 @@ import org.kde.kirigami as Kirigami
 PlasmoidItem {
     id: root
 
-    preferredRepresentation: compactRepresentation
+    // en la barra va directo el botón con el logo (la "representación completa", como el dock): el Launchpad es su
+    // propia ventana (dialog), sin popup de Plasma. Como "compacta", sin una completa declarada, Plasma 6 usaba este
+    // item entero y no dibujaba el botón (quedaba un hueco); con una completa vacía, la tecla Meta abría un popup vacío
+    preferredRepresentation: fullRepresentation
+    activationTogglesExpanded: false   // la tecla Meta abre el Launchpad (onActivated)
     Plasmoid.icon: Plasmoid.configuration.icon
     toolTipMainText: "Launchpad"
     toolTipSubText: "All your apps"
@@ -96,8 +100,9 @@ PlasmoidItem {
         function onActivated() { root.toggle() }
     }
 
-    compactRepresentation: MouseArea {
+    fullRepresentation: MouseArea {
         Layout.minimumWidth: height
+        Layout.preferredWidth: height
         hoverEnabled: true
         onClicked: root.toggle()
         Kirigami.Icon {
