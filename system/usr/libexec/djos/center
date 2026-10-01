@@ -223,8 +223,14 @@ def card_rates(n):
     """las frecuencias que la placa acepta: las USB las dicen en stream*, las de la placa base en su codec"""
     rates = set()
     for f in glob.glob(f"/proc/asound/card{n}/stream*"):
-        for m in re.finditer(r"Rates: ([0-9, ]+)", read(f)):
-            rates.update(int(x) for x in re.findall(r"\d+", m.group(1)))
+        for m in re.finditer(r"Rates: ([^\n]+)", read(f)):
+            line = m.group(1)
+            # las USB 1.0 viejas dan un rango: "Rates: 8000 - 48000 (continuous)"
+            r = re.match(r"\s*(\d+)\s*-\s*(\d+)\s*\(continuous\)", line)
+            if r:
+                rates.update(x for x in ALL_RATES if int(r.group(1)) <= x <= int(r.group(2)))
+            else:
+                rates.update(int(x) for x in re.findall(r"\d+", line))
     if not rates:
         for f in glob.glob(f"/proc/asound/card{n}/codec#*"):
             for m in re.finditer(r"^\s*rates \[[^]]*\]: ([0-9 ]+)$", read(f), re.M):

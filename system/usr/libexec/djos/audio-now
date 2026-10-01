@@ -26,7 +26,10 @@ pw_settings() {
 # el margen de PipeWire de la salida de cada placa (api.alsa.headroom), lo que DJOS Center le fijó (force-rate /
 # quantum) y cuál es la salida por defecto. Cambia poco: se guarda un minuto (pw-dump + jq es lo único "caro" acá)
 CACHE=${XDG_RUNTIME_DIR:-/tmp}/djos-audio-nodes
-pw_node() {   # pw_node <número de placa> → "headroom forceRate forceQuantum default(0/1)"
+# una placa puede tener varias salidas abiertas a la vez (analógica + digital, HDMI de varios monitores): se buscan por
+# placa y dispositivo (pcmNp) cuando PipeWire lo informa. pw_load va en el shell principal (no en $(…)): pw-dump corre
+# una sola vez
+pw_load() {
     if [ -z "$pw_nodes" ]; then
         if [ -n "$(find "$CACHE" -mmin -1 2> /dev/null)" ]; then
             pw_nodes=$(< "$CACHE")
@@ -36,11 +39,17 @@ pw_node() {   # pw_node <número de placa> → "headroom forceRate forceQuantum 
                   | .metadata[]? | select(.key == "default.audio.sink") | .value.name] | first) as $def
                 | .[] | select(.type == "PipeWire:Interface:Node") | .info.props // {}
                 | select(."media.class" == "Audio/Sink" and ."api.alsa.pcm.card" != null)
-                | "\(."api.alsa.pcm.card") \(."api.alsa.headroom" // 0) \(."node.force-rate" // 0) \(."node.force-quantum" // 0) \(if ."node.name" == $def then 1 else 0 end)"' 2> /dev/null)
+                | "\(."api.alsa.pcm.card") \(."api.alsa.pcm.device" // -1) \(."api.alsa.headroom" // 0) \(."node.force-rate" // 0) \(."node.force-quantum" // 0) \(if ."node.name" == $def then 1 else 0 end)"' 2> /dev/null)
+            pw_nodes=${pw_nodes:-none}
             printf '%s\n' "$pw_nodes" > "$CACHE.tmp" 2> /dev/null && mv -f "$CACHE.tmp" "$CACHE"
         fi
     fi
-    awk -v c="$1" '$1 == c { print $2, $3, $4, $5; exit }' <<< "$pw_nodes"
+}
+pw_node() {   # pw_node <placa> <dispositivo> → "headroom forceRate forceQuantum default(0/1)" (antes: pw_load)
+    # el dispositivo exacto si PipeWire lo dice (api.alsa.pcm.device); con perfiles ACP no viene: la salida de esa placa
+    awk -v c="$1" -v d="$2" '$1 == c && $2 == d { print $3, $4, $5, $6; f = 1; exit }
+                             $1 == c && !any { any = $3 " " $4 " " $5 " " $6 }
+                             END { if (!f) print (any != "" ? any : "0 0 0 0") }' <<< "$pw_nodes"
 }
 
 out=() names=$(< /proc/asound/cards)
@@ -48,6 +57,7 @@ for sub in /proc/asound/card[0-9]*/pcm*p/sub[0-9]*; do
     hw=$(< "$sub/hw_params") || continue
     [ "$hw" = closed ] && continue
     card=${sub#/proc/asound/card}; card=${card%%/*}
+    dev=${sub%/sub*}; dev=${dev##*/pcm}; dev=${dev%p}
     name=$(sed -n "s/^ *$card \[.*\]: .* - //p" <<< "$names")
     rate=$(sed -n 's/^rate: \([0-9]*\).*/\1/p' <<< "$hw")
     period=$(sed -n 's/^period_size: \([0-9]*\)/\1/p' <<< "$hw")
@@ -60,7 +70,8 @@ for sub in /proc/asound/card[0-9]*/pcm*p/sub[0-9]*; do
     headroom=0 main=0
     if [ "$owner" = pipewire ]; then
         pw_settings
-        read -r headroom _rate force_q main <<< "$(pw_node "$card")"
+        pw_load
+        read -r headroom _rate force_q main <<< "$(pw_node "$card" "$dev")"
         frames=${pw_quantum:-$period}
         [ "${force_q:-0}" -gt 0 ] 2> /dev/null && frames=$force_q
         frames=$(( frames + ${headroom:-0} ))

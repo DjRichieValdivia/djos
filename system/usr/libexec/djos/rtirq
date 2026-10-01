@@ -16,12 +16,18 @@ if [ -n "$P" ] && [ -n "$E" ]; then
     for d in /proc/irq/[0-9]*; do
         echo "$E" > "$d/smp_affinity_list" 2>/dev/null   # las del disco NVMe las maneja el núcleo: se ignoran
     done
-    # y las que aparezcan después (un USB o una placa que se enchufa) también arrancan en los E: la máscara en hexa
-    mask=0
+    # y las que aparezcan después (un USB o una placa que se enchufa) también arrancan en los E. El núcleo la pide en
+    # hexa por grupos de 32 núcleos separados por comas, el más alto primero ("fff00"; con 40 hilos "ff,ffffff00")
+    words=()
     for r in ${E//,/ }; do
-        for ((i = ${r%-*}; i <= ${r#*-}; i++)); do [ "$i" -lt 63 ] && mask=$((mask | (1 << i))); done
+        for ((i = ${r%-*}; i <= ${r#*-}; i++)); do words[i / 32]=$(( ${words[i / 32]:-0} | (1 << (i % 32)) )); done
     done
-    [ "$mask" != 0 ] && printf '%x\n' "$mask" > /proc/irq/default_smp_affinity 2>/dev/null
+    if [ ${#words[@]} -gt 0 ]; then
+        top=0; for i in "${!words[@]}"; do [ "$i" -gt "$top" ] && top=$i; done
+        mask=$(printf '%x' "${words[top]:-0}")
+        for ((i = top - 1; i >= 0; i--)); do mask+=$(printf ',%08x' "${words[i]:-0}"); done
+        echo "$mask" > /proc/irq/default_smp_affinity 2>/dev/null
+    fi
 fi
 
 boost() {   # boost <dispositivo PCI> <prioridad>

@@ -28,11 +28,15 @@ PlasmoidItem {
     Sensors.Sensor { id: cpuFreq; sensorId: "cpu/all/averageFrequency"; updateRateLimit: 3000; enabled: root.expanded }
     Sensors.Sensor { id: ram; sensorId: "memory/physical/used"; updateRateLimit: 3000 }
     Sensors.Sensor { id: ramTotal; sensorId: "memory/physical/total"; updateRateLimit: 60000 }
-    Sensors.Sensor { id: gpu; sensorId: "gpu/gpu0/usage"; updateRateLimit: 2000 }
-    Sensors.Sensor { id: gpuTemp; sensorId: "gpu/gpu0/temperature"; updateRateLimit: 3000; enabled: root.expanded }
-    Sensors.Sensor { id: vram; sensorId: "gpu/gpu0/usedVram"; updateRateLimit: 3000; enabled: root.expanded }
-    Sensors.Sensor { id: vramTotal; sensorId: "gpu/gpu0/totalVram"; updateRateLimit: 60000 }
-    Sensors.Sensor { id: gpuPower; sensorId: "gpu/gpu0/power"; updateRateLimit: 3000; enabled: root.expanded }
+    // la placa de video que importa: la de más memoria (la dedicada; gpu0 puede ser el iGPU de un Ryzen o una laptop)
+    Sensors.Sensor { id: vram0Total; sensorId: "gpu/gpu0/totalVram"; updateRateLimit: 60000 }
+    Sensors.Sensor { id: vram1Total; sensorId: "gpu/gpu1/totalVram"; updateRateLimit: 60000 }
+    readonly property string gpuKey: "gpu/gpu" + (vram1Total.value > vram0Total.value ? 1 : 0)
+    Sensors.Sensor { id: gpu; sensorId: root.gpuKey + "/usage"; updateRateLimit: 2000 }
+    Sensors.Sensor { id: gpuTemp; sensorId: root.gpuKey + "/temperature"; updateRateLimit: 3000; enabled: root.expanded }
+    Sensors.Sensor { id: vram; sensorId: root.gpuKey + "/usedVram"; updateRateLimit: 3000; enabled: root.expanded }
+    Sensors.Sensor { id: vramTotal; sensorId: root.gpuKey + "/totalVram"; updateRateLimit: 60000 }
+    Sensors.Sensor { id: gpuPower; sensorId: root.gpuKey + "/power"; updateRateLimit: 3000; enabled: root.expanded }
 
     readonly property bool hasGpu: vramTotal.value > 0
     property var audio: ({ set: false, outputs: [], richiedj: null })
@@ -42,9 +46,10 @@ PlasmoidItem {
     property int lastDrops: -1
     property double dropAtMs: 0
     onRdjChanged: {
-        if (!rdj) { lastDrops = -1; return }
+        // sin estado un rato (Richie DJ trabado, justo cuando hay cortes) se guarda la cuenta: los que pasen igual cuentan
+        if (!rdj) return
         if (lastDrops >= 0 && rdj.dropouts > lastDrops) dropAtMs = Date.now()
-        lastDrops = rdj.dropouts
+        lastDrops = rdj.dropouts   // si bajó, Richie DJ se volvió a abrir: desde ahí
     }
     readonly property bool recentDrops: rdj !== null && Date.now() - dropAtMs < 60000 && dropAtMs > 0
     // la salida que importa: la de Richie DJ (ALSA Direct) si tiene una, si no la principal (la salida por defecto)
@@ -325,12 +330,12 @@ PlasmoidItem {
                 PlasmaComponents.Button {
                     icon.name: "audio-card"
                     text: "Sound cards…"
-                    onClicked: { exec.connectSource("/usr/libexec/djos/center --page audio"); root.expanded = false }
+                    onClicked: { exec.connectSource("setsid -f /usr/libexec/djos/center --page audio"); root.expanded = false }
                 }
                 PlasmaComponents.Button {
                     icon.name: "utilities-system-monitor"
                     text: "System Monitor"
-                    onClicked: { exec.connectSource("plasma-systemmonitor"); root.expanded = false }
+                    onClicked: { exec.connectSource("setsid -f plasma-systemmonitor"); root.expanded = false }
                 }
             }
         }

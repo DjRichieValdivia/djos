@@ -45,9 +45,33 @@ topbar_rebuild() {
     has=$(sed -n '/^function has(type)/,/^}/p' "$layout")
     bar=$(awk '/^\/\/ -+ barra de arriba/ { f = 1 } /^\/\/ -+ dock/ { f = 0 } f' "$layout")
     [ -n "$has" ] && [ -n "$bar" ] || return 1
-    js="var old = panels(); for (var i = 0; i < old.length; ++i) if (old[i].location === 'top') old[i].remove();
+    # lo que el usuario acomodó en el Launchpad (orden, ocultos) y en DJOS Stats (qué datos muestra) pasa a la barra nueva
+    js="var keep = {}, old = panels();
+for (var i = 0; i < old.length; ++i) {
+    if (old[i].location !== 'top') continue;
+    var ws = old[i].widgets();
+    for (var j = 0; j < ws.length; ++j) {
+        if (ws[j].type !== 'org.djos.launchpad' && ws[j].type !== 'org.djos.stats') continue;
+        ws[j].currentConfigGroup = ['General'];
+        var o = {}, ks = ws[j].configKeys;
+        for (var k = 0; k < ks.length; ++k) o[ks[k]] = ws[j].readConfig(ks[k]);
+        keep[ws[j].type] = o;
+    }
+    old[i].remove();
+}
 $has
-$bar"
+$bar
+var now = panels();
+for (var i = 0; i < now.length; ++i) {
+    if (now[i].location !== 'top') continue;
+    var ws = now[i].widgets();
+    for (var j = 0; j < ws.length; ++j) {
+        var o = keep[ws[j].type];
+        if (!o) continue;
+        ws[j].currentConfigGroup = ['General'];
+        for (var key in o) ws[j].writeConfig(key, o[key]);
+    }
+}"
     busctl --user call org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell evaluateScript s "$js" > /dev/null 2>&1 || return 1
     sleep 6   # la bandeja nueva arma su lista
     plasma_script /usr/share/djos/panel-tweaks.js

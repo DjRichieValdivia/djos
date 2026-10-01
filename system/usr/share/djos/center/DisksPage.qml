@@ -54,7 +54,7 @@ PageBase {
         StatusRow {
             iconName: "drive-removable-media-usb"
             title: "Prepare a USB stick"
-            subtitle: "Pioneer players read FAT32 (and exFAT on newer models). Format the stick with Partition Manager, then export your playlists from Richie DJ."
+            subtitle: "Pioneer players read FAT32 (and exFAT on newer models). Format the stick with Partition Manager and copy your music folders to it: the players browse them by folder. For playlists, cues and beatgrids on the players, export the collection for rekordbox (XML) from Richie DJ (1.10 or newer) and write the stick with rekordbox on a Windows PC or a Mac."
             QQC2.Button {
                 icon.name: "partitionmanager"
                 text: "Partition Manager"

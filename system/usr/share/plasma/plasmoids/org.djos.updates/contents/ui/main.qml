@@ -93,8 +93,11 @@ PlasmoidItem {
     }
 
     fullRepresentation: PlasmaExtras.Representation {
+        id: rep
         Layout.preferredWidth: Kirigami.Units.gridUnit * 24
-        Layout.preferredHeight: Kirigami.Units.gridUnit * 20
+        // lo que mide lo que hay adentro (con un alto fijo quedaba un hueco grande, o no entraba la confirmación)
+        Layout.minimumHeight: col.implicitHeight + Kirigami.Units.largeSpacing * 2 + (rep.header ? rep.header.implicitHeight : 0)
+        Layout.preferredHeight: Layout.minimumHeight
         collapseMarginsHint: true
 
         header: PlasmaExtras.PlasmoidHeading {
@@ -116,6 +119,7 @@ PlasmoidItem {
 
         contentItem: Item {
         ColumnLayout {
+            id: col
             anchors.fill: parent
             anchors.margins: Kirigami.Units.largeSpacing
             spacing: Kirigami.Units.largeSpacing
@@ -140,7 +144,7 @@ PlasmoidItem {
             RowLayout {
                 Layout.fillWidth: true
                 Kirigami.Icon {
-                    source: root.ready ? "update-high" : root.sysState === "error" ? "dialog-warning" : "preferences-system"
+                    source: root.ready ? "update-high" : root.sysState === "error" ? "dialog-warning" : "update-none"   // como en DJOS Center
                     implicitWidth: Kirigami.Units.iconSizes.medium; implicitHeight: implicitWidth
                 }
                 ColumnLayout {

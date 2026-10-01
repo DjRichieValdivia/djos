@@ -34,8 +34,10 @@ PlasmoidItem {
     }
     Component.onCompleted: refresh()
     // como en un Mac: Hide / Quit son para todas las ventanas de esa app, no solo la del frente
+    property string menuAppId: ""   // la app del clic (abrir el menú podría cambiar la ventana activa)
+    property string menuAppName: ""
     function eachWindowOfApp(fn) {
-        const id = tasks.data(tasks.activeTask, TaskManager.AbstractTasksModel.AppId)
+        const id = root.menuAppId
         if (!id) return
         for (let r = tasks.count - 1; r >= 0; --r) {
             const i = tasks.makeModelIndex(r)
@@ -46,13 +48,18 @@ PlasmoidItem {
     fullRepresentation: MouseArea {
         id: area
         // sin app activa, nada: el menú global queda pegado al logo
-        Layout.preferredWidth: root.appName.length > 0 ? label.implicitWidth + Kirigami.Units.smallSpacing * 3 : 0
+        // hasta 12 de ancho (un nombre largo se corta con "…")
+        Layout.preferredWidth: root.appName.length > 0 ? Math.min(label.implicitWidth + Kirigami.Units.smallSpacing * 3, Kirigami.Units.gridUnit * 12) : 0
         Layout.minimumWidth: Layout.preferredWidth
-        Layout.maximumWidth: Kirigami.Units.gridUnit * 12
+        Layout.maximumWidth: Layout.preferredWidth
         Layout.fillHeight: true
         visible: root.appName.length > 0
         hoverEnabled: true
-        onClicked: menu.openRelative()
+        onClicked: {
+            root.menuAppId = tasks.data(tasks.activeTask, TaskManager.AbstractTasksModel.AppId) || ""
+            root.menuAppName = root.appName
+            menu.openRelative()
+        }
 
         Rectangle {   // el resaltado al pasar el mouse, como los menús de al lado
             anchors.fill: parent
@@ -75,14 +82,14 @@ PlasmoidItem {
             visualParent: area
             placement: PlasmaExtras.Menu.BottomPosedLeftAlignedPopup
             PlasmaExtras.MenuItem {
-                text: "Hide " + root.appName
+                text: "Hide " + root.menuAppName
                 icon: "window-minimize"
                 onClicked: root.eachWindowOfApp(i => {
                     if (!tasks.data(i, TaskManager.AbstractTasksModel.IsMinimized)) tasks.requestToggleMinimized(i)
                 })
             }
             PlasmaExtras.MenuItem {
-                text: "Quit " + root.appName
+                text: "Quit " + root.menuAppName
                 icon: "application-exit"
                 onClicked: root.eachWindowOfApp(i => tasks.requestClose(i))
             }
