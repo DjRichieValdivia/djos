@@ -159,7 +159,9 @@ repo (a pre-push hook blocks personal data). Tokens are never printed; they only
 ## Look (per-machine files + per-user setup)
 
 Own files only (never modify files owned by other packages): look-and-feel `org.djos.desktop`, `DJOS.colors`,
-own icon theme `Papirus-Dark-DJOS` (Inherits=Papirus-Dark, orange folders via symlinks), Inter/JetBrains Mono,
+own icon theme `Papirus-Dark-DJOS` (a complete symlink mirror of Papirus-Dark with orange folders, built by
+`branding/gen-links.sh`; it must stay complete because KIconLoader shortens a name inside each theme before trying
+its parents, so a folders-only theme turned `network-*` tray icons into the `network` folder), Inter/JetBrains Mono,
 wallpapers `DJOS` and `DJOS-Lock`, splash, plymouth theme `djos`, Konsole profile, `/etc/xdg/*rc` defaults (copied
 from `/usr/share/djos/xdg`, see the table above; the other `/etc` files have DJOS-only names and are
 `%config(noreplace)`), KIOSK restrictions (NOT `kcm_updates` — on stock Fedora that page is the update UI), app menu

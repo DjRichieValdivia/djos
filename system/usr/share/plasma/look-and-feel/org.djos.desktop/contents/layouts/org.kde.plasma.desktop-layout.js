@@ -16,10 +16,11 @@ try { panel.floating = true; } catch (e) { }
 
 var richiedj = applicationExists("richiedj.desktop");
 
-// menú: el logo de DJOS y los favoritos (Richie DJ también si todavía no está: aparece cuando se instala)
+// menú: el logo de Plasma (el de siempre en KDE, a colores) y los favoritos (Richie DJ también si todavía no está:
+// aparece cuando se instala)
 var menu = panel.addWidget("org.kde.plasma.kickoff");
 menu.currentConfigGroup = ["General"];
-menu.writeConfig("icon", "djos");
+menu.writeConfig("icon", "start-here-kde-plasma");
 menu.writeConfig("favoritesPortedToKAstats", false);
 menu.writeConfig("favorites", ["applications:richiedj.desktop", "applications:org.djos.center.desktop",
                                "applications:org.mozilla.firefox.desktop", "applications:org.kde.dolphin.desktop",
@@ -36,6 +37,7 @@ tasks.currentConfigGroup = ["General"];
 tasks.writeConfig("launchers", launchers);
 
 panel.addWidget("org.kde.plasma.marginsseparator");
+// bandeja sin el clima (desktop-setup lo saca con panel-tweaks.js: la bandeja arma su lista recién después)
 panel.addWidget("org.kde.plasma.systemtray");
 // ícono de actualizaciones de DJOS (solo si el widget está instalado: si no, Plasma mostraría un error en la barra)
 var updates = true;
