@@ -1,0 +1,4 @@
+# DJOS: sin el "blip" de prueba al cambiar el volumen (Plasma lo trae prendido): en un set saldría por los parlantes
+# del público. Lo que cada usuario cambia (Configuración > Sonido) queda en su ~/.config/plasmaparc y manda.
+[General]
+AudioFeedback=false

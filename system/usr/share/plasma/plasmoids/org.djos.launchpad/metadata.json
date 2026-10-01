@@ -1,0 +1,15 @@
+{
+    "KPlugin": {
+        "Authors": [ { "Name": "DJOS" } ],
+        "Category": "Application Launchers",
+        "Description": "DJOS Launchpad: all your apps on full screen, with search; arrange them, hide them, add them to the dock",
+        "Icon": "djos-launchpad",
+        "Id": "org.djos.launchpad",
+        "License": "GPL-2.0-or-later",
+        "Name": "DJOS Launchpad",
+        "Version": "1.0"
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-Provides": [ "org.kde.plasma.launchermenu" ]
+}

@@ -8,7 +8,7 @@ ColorScheme=DJOSGlass
 Theme=Papirus-Dark-DJOS
 
 [plasmarc][Theme]
-name=default
+name=djos-glass
 
 [Wallpaper]
 Image=DJOS-Glass

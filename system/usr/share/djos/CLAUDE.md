@@ -51,9 +51,23 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
   profiles map to them through `/etc/tuned/ppd.conf` (tuned-ppd's file, original saved in `/var/lib/djos/backup`).
 - `djos-rtirq` gives the USB controller that hosts a sound card FIFO 90 and the onboard HDA FIFO 85, on a P-core;
   other IRQs go to E-cores (re-run on hot-plug by `91-djos-rtirq.rules`).
-- PipeWire 48 kHz, quantum 256 (min 32) (`/usr/share/pipewire/*.conf.d/50-djos.conf`); users are in groups `audio`
-  (rtprio 95, memlock unlimited, `/etc/security/limits.d/95-djos-audio.conf`) and `pipewire`; `snd_hda_intel
-  power_save=0`; USB audio devices never autosuspend (`90-djos-audio.rules`).
+- PipeWire 48 kHz, quantum 256 (min 32) (`/usr/share/pipewire/*.conf.d/50-djos.conf`); the rate is fixed
+  (`allowed-rates = [ 48000 ]`: switching rates reconfigures the card and many cards "pop"; everything else is
+  resampled at quality 10). DJOS Center > Audio sets the rate, buffer and an optional "follow the rate of what's
+  playing" (bit-perfect, may pop) in `~/.config/pipewire/pipewire.conf.d/60-djos-user.conf` + `pw-metadata`, and
+  shows what each card is running at now (`/proc/asound/card*/pcm*/sub*/hw_params`, owner pid). WirePlumber never
+  suspends ALSA outputs (`52-djos-no-suspend.conf`, `session.suspend-timeout-seconds = 0`: closing/reopening after
+  5 s of silence popped on every new sound); webcam microphones (`device.form-factor = "webcam"`) get a low priority
+  so the audio interface is the default input (`53-djos-webcam-mic.conf`; a user's own choice still wins). Users are in groups `audio` (rtprio 95, memlock unlimited,
+  `/etc/security/limits.d/95-djos-audio.conf`) and `pipewire`; `snd_hda_intel power_save=0`; USB audio devices never
+  autosuspend (`90-djos-audio.rules`); no volume-change "blip" (`/etc/xdg/plasmaparc` `AudioFeedback=false`).
+- No background mail/calendar engine: `desktop-setup` turns off the `org.kde.kalendarac` autostart for each user (it
+  started Akonadi with MySQL and ~15 agents, >1 GB RAM, at every login); opening KMail/KOrganizer still starts it.
+  `djos.menu` also hides the KDE PIM helper tools (theme editors, import/export, Sieve, KTnef, GnuPG log).
+- Pops/dropouts checklist (also in the Self-Test and DJOS Center > Audio): card `state` in `pw-cli info <sink id>` (should not go back to "suspended"), its real rate
+  in `/proc/asound/cardN/pcm0p/sub0/hw_params`, `pw-metadata -n settings` (clock.rate / allowed-rates), `pw-top`
+  (ERR column), and USB layout (`lsusb -t`): a webcam or hub sharing the audio interface's xHCI controller can cause
+  dropouts; a port on another controller is better.
 - Measure: DJOS Self-Test (menu) and `sudo djos-latency-test` (cyclictest, rtla, hwlatdetect, xrun counter; needs
   `realtime-tests rtla stress-ng`).
 
@@ -88,15 +102,25 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
 - Don't edit files owned by other packages (check with `rpm -qf <file>`): use drop-ins or `/etc` overrides.
 
 ## Look and feel
-- Global theme `org.djos.glass` "DJOS Glass" (the default since 2.3: Mac-style interface only, no Apple assets): top
-  bar (DJOS menu, the active app's menu `org.kde.plasma.appmenu`, tray, clock) and a floating centered dock
-  (Richie DJ first, Launchpad `kickerdash`, trash); colors `DJOSGlass`; window decoration Aurorae v2
-  `__aurorae__svg__DJOSGlass` (`/usr/share/aurorae/themes/DJOSGlass`, colored round buttons on the right in Windows
-  order: `ButtonsOnRight=IAX` in `/etc/xdg/kwinrc`, which is global for every theme); magic lamp minimize. The classic `org.djos.desktop` stays
-  in the theme picker. Icons `Papirus-Dark-DJOS` (orange folders), fonts Inter / JetBrains Mono, wallpapers
-  `/usr/share/wallpapers/DJOS*`, splash, Plymouth theme `djos`. Art: `branding/gen-glass.py` (decoration, wallpaper,
-  previews) and `branding/gen-links.sh` (icon links). `djos-desktop.service` (user) applies the look once per user
-  and design version (`~/.local/state/djos/desktop-v3`) and sets each monitor to its highest refresh rate
+- Global theme `org.djos.glass` "DJOS Glass" (the default since 2.3: Mac-style interface only, no Apple assets, blue
+  accent): a transparent top bar (the DJOS logo opens the DJOS Launchpad `org.djos.launchpad`, also Meta and the dock
+  tile: full-screen grid from `/usr/libexec/djos/launchpad-apps`, search, pages, drag to reorder, right-click Add to
+  Dock / Hide, power buttons; it changes the dock's launchers through `evaluateScript`; the active app's menu
+  `org.kde.plasma.appmenu`, tray, clock) and the DJOS dock `org.djos.dock` (`/usr/share/plasma/plasmoids/
+  org.djos.dock`, QML on `org.kde.taskmanager` TasksModel: macOS-style magnification (icons drawn once at full size
+  and scaled on the GPU), app name label, running dot / blue pill for the active app, launch bounce, right-click
+  menu, drag to reorder or out to remove, drop .desktop files to add, files onto an app to open, onto the trash to
+  delete; Launchpad and trash; its panel is taller than the dock and hides when a window touches it, "dodge
+  windows"); Plasma style `djos-glass` (transparent panels, no panel
+  blur/contrast, 12 px rounded popups; the rest falls back to Breeze); colors `DJOSGlass`; window decoration Aurorae
+  v2 `__aurorae__svg__DJOSGlass` (`/usr/share/aurorae/themes/DJOSGlass`, colored round buttons on the right in
+  Windows order: `ButtonsOnRight=IAX` in `/etc/xdg/kwinrc`, which is global for every theme; GTK apps and Chrome get
+  it from KDE's gtkconfig only after a KConfig change signal); magic lamp minimize. The classic `org.djos.desktop`
+  stays in the theme picker. Icons `Papirus-Dark-DJOS` (Papirus' blue folders; `FOLDER_COLOR`
+  in `branding/gen-links.sh`), fonts Inter / JetBrains Mono, wallpapers
+  `/usr/share/wallpapers/DJOS*`, splash, Plymouth theme `djos`. Art: `branding/gen-glass.py` (decoration, Plasma
+  style, app icon tiles, wallpaper, previews) and `branding/gen-links.sh` (icon links). `djos-desktop.service` (user) applies the look once per user
+  and design version (`~/.local/state/djos/desktop-v4`) and sets each monitor to its highest refresh rate
   (`display-setup`). Plasma 6 writes a global theme's values to `~/.config/kdedefaults/`: a key in the user's own
   file (e.g. `library=` in `~/.config/kwinrc`) wins over it. Classic DJOS: `plasma-apply-lookandfeel -a
   org.djos.desktop --resetLayout`; back to Fedora's desktop:

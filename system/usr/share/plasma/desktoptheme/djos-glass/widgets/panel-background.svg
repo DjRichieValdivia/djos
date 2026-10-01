@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DJOS Glass: barra de los paneles, transparente (lo genera branding/gen-glass.py: no editar a mano) -->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="600" height="400" viewBox="0 0 600 400">
+<rect id="topleft" x="0" y="0" width="2" height="2" fill="#000000" fill-opacity="0"/>
+<rect id="top" x="4" y="0" width="2" height="2" fill="#000000" fill-opacity="0"/>
+<rect id="topright" x="8" y="0" width="2" height="2" fill="#000000" fill-opacity="0"/>
+<rect id="left" x="12" y="0" width="2" height="2" fill="#000000" fill-opacity="0"/>
+<rect id="center" x="16" y="0" width="2" height="2" fill="#000000" fill-opacity="0"/>
+<rect id="right" x="20" y="0" width="2" height="2" fill="#000000" fill-opacity="0"/>
+<rect id="bottomleft" x="24" y="0" width="2" height="2" fill="#000000" fill-opacity="0"/>
+<rect id="bottom" x="28" y="0" width="2" height="2" fill="#000000" fill-opacity="0"/>
+<rect id="bottomright" x="32" y="0" width="2" height="2" fill="#000000" fill-opacity="0"/>
+<rect id="hint-top-margin" x="0" y="10" width="3" height="3" fill="#ff00ff" fill-opacity="0"/>
+<rect id="hint-bottom-margin" x="6" y="10" width="3" height="3" fill="#ff00ff" fill-opacity="0"/>
+<rect id="hint-left-margin" x="12" y="10" width="3" height="3" fill="#ff00ff" fill-opacity="0"/>
+<rect id="hint-right-margin" x="18" y="10" width="3" height="3" fill="#ff00ff" fill-opacity="0"/>
+</svg>

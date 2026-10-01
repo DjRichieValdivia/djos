@@ -1,0 +1,15 @@
+{
+    "KPlugin": {
+        "Authors": [ { "Name": "DJOS" } ],
+        "Category": "Windows and Tasks",
+        "Description": "DJOS dock: your apps with a zoom effect, the Launchpad and the trash",
+        "Icon": "djos-launchpad",
+        "Id": "org.djos.dock",
+        "License": "GPL-2.0-or-later",
+        "Name": "DJOS Dock",
+        "Version": "1.0"
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-Provides": [ "org.kde.plasma.multitasking" ]
+}

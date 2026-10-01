@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DJOS Glass: DJOS Center (lo genera branding/gen-glass.py: no editar a mano) -->
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+ <defs><linearGradient id="center-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8f7bff"/><stop offset="1" stop-color="#4b34d6"/></linearGradient><linearGradient id="center-hl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/><stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/></linearGradient></defs>
+ <rect x="4" y="4" width="56" height="56" rx="13.5" fill="url(#center-bg)"/>
+ <rect x="4" y="4" width="56" height="56" rx="13.5" fill="url(#center-hl)"/>
+ <rect x="4.4" y="4.4" width="55.2" height="55.2" rx="13.1" fill="none" stroke="#ffffff" stroke-opacity="0.14" stroke-width="0.8"/>
+ <g stroke="#1c1450" stroke-width="3" stroke-linecap="round" opacity="0.85"><line x1="22" y1="16" x2="22" y2="48"/><line x1="32" y1="16" x2="32" y2="48"/><line x1="42" y1="16" x2="42" y2="48"/></g> <g fill="#ffffff"><rect x="16.5" y="35" width="11" height="6" rx="2"/><rect x="26.5" y="21" width="11" height="6" rx="2"/><rect x="36.5" y="29" width="11" height="6" rx="2"/></g>
+</svg>

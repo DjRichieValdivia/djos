@@ -3,7 +3,9 @@
 <!--
   DJOS: fuera del menú de aplicaciones lo que en Wayland o en una PC de DJ no sirve (siguen instalados y se pueden
   abrir desde la búsqueda o una terminal): configuración de NVIDIA (en Wayland no aplica), el visor de teclados,
-  el editor del menú, el cortafuegos, htop y las variantes técnicas de Carla (queda Carla).
+  el editor del menú, el cortafuegos, htop, las variantes técnicas de Carla (queda Carla), las herramientas técnicas
+  del correo de KDE (editores de temas, importar/exportar datos, Sieve, KTnef, el registro de GnuPG: KMail, Kontact y
+  KOrganizer quedan), el selector de métodos de entrada y el de SELinux (aparece solo cuando hace falta).
   Plasma suma este archivo a su menú (DefaultMergeDirs de plasma-applications.menu). Cada <Exclude> vale solo
   para su submenú, por eso se repite en todos (también en "Applications", el de "sin categoría": si no, lo que se
   saca de un submenú aparecería ahí).
@@ -23,6 +25,16 @@
 			<Filename>carla-jack-single.desktop</Filename>
 			<Filename>carla-patchbay.desktop</Filename>
 			<Filename>carla-rack.desktop</Filename>
+			<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+			<Filename>org.kde.contactthemeeditor.desktop</Filename>
+			<Filename>org.kde.headerthemeeditor.desktop</Filename>
+			<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+			<Filename>org.kde.pimdataexporter.desktop</Filename>
+			<Filename>org.kde.sieveeditor.desktop</Filename>
+			<Filename>org.kde.ktnef.desktop</Filename>
+			<Filename>org.kde.kwatchgnupg.desktop</Filename>
+			<Filename>im-chooser.desktop</Filename>
+			<Filename>setroubleshoot.desktop</Filename>
 		</Exclude>
 	</Menu>
 	<Menu>
@@ -38,6 +50,16 @@
 			<Filename>carla-jack-single.desktop</Filename>
 			<Filename>carla-patchbay.desktop</Filename>
 			<Filename>carla-rack.desktop</Filename>
+			<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+			<Filename>org.kde.contactthemeeditor.desktop</Filename>
+			<Filename>org.kde.headerthemeeditor.desktop</Filename>
+			<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+			<Filename>org.kde.pimdataexporter.desktop</Filename>
+			<Filename>org.kde.sieveeditor.desktop</Filename>
+			<Filename>org.kde.ktnef.desktop</Filename>
+			<Filename>org.kde.kwatchgnupg.desktop</Filename>
+			<Filename>im-chooser.desktop</Filename>
+			<Filename>setroubleshoot.desktop</Filename>
 		</Exclude>
 	</Menu>
 	<Menu>
@@ -53,6 +75,16 @@
 			<Filename>carla-jack-single.desktop</Filename>
 			<Filename>carla-patchbay.desktop</Filename>
 			<Filename>carla-rack.desktop</Filename>
+			<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+			<Filename>org.kde.contactthemeeditor.desktop</Filename>
+			<Filename>org.kde.headerthemeeditor.desktop</Filename>
+			<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+			<Filename>org.kde.pimdataexporter.desktop</Filename>
+			<Filename>org.kde.sieveeditor.desktop</Filename>
+			<Filename>org.kde.ktnef.desktop</Filename>
+			<Filename>org.kde.kwatchgnupg.desktop</Filename>
+			<Filename>im-chooser.desktop</Filename>
+			<Filename>setroubleshoot.desktop</Filename>
 		</Exclude>
 	</Menu>
 	<Menu>
@@ -68,6 +100,16 @@
 			<Filename>carla-jack-single.desktop</Filename>
 			<Filename>carla-patchbay.desktop</Filename>
 			<Filename>carla-rack.desktop</Filename>
+			<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+			<Filename>org.kde.contactthemeeditor.desktop</Filename>
+			<Filename>org.kde.headerthemeeditor.desktop</Filename>
+			<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+			<Filename>org.kde.pimdataexporter.desktop</Filename>
+			<Filename>org.kde.sieveeditor.desktop</Filename>
+			<Filename>org.kde.ktnef.desktop</Filename>
+			<Filename>org.kde.kwatchgnupg.desktop</Filename>
+			<Filename>im-chooser.desktop</Filename>
+			<Filename>setroubleshoot.desktop</Filename>
 		</Exclude>
 	</Menu>
 	<Menu>
@@ -83,6 +125,16 @@
 			<Filename>carla-jack-single.desktop</Filename>
 			<Filename>carla-patchbay.desktop</Filename>
 			<Filename>carla-rack.desktop</Filename>
+			<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+			<Filename>org.kde.contactthemeeditor.desktop</Filename>
+			<Filename>org.kde.headerthemeeditor.desktop</Filename>
+			<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+			<Filename>org.kde.pimdataexporter.desktop</Filename>
+			<Filename>org.kde.sieveeditor.desktop</Filename>
+			<Filename>org.kde.ktnef.desktop</Filename>
+			<Filename>org.kde.kwatchgnupg.desktop</Filename>
+			<Filename>im-chooser.desktop</Filename>
+			<Filename>setroubleshoot.desktop</Filename>
 		</Exclude>
 	</Menu>
 	<Menu>
@@ -98,6 +150,16 @@
 			<Filename>carla-jack-single.desktop</Filename>
 			<Filename>carla-patchbay.desktop</Filename>
 			<Filename>carla-rack.desktop</Filename>
+			<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+			<Filename>org.kde.contactthemeeditor.desktop</Filename>
+			<Filename>org.kde.headerthemeeditor.desktop</Filename>
+			<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+			<Filename>org.kde.pimdataexporter.desktop</Filename>
+			<Filename>org.kde.sieveeditor.desktop</Filename>
+			<Filename>org.kde.ktnef.desktop</Filename>
+			<Filename>org.kde.kwatchgnupg.desktop</Filename>
+			<Filename>im-chooser.desktop</Filename>
+			<Filename>setroubleshoot.desktop</Filename>
 		</Exclude>
 	</Menu>
 	<Menu>
@@ -113,6 +175,16 @@
 			<Filename>carla-jack-single.desktop</Filename>
 			<Filename>carla-patchbay.desktop</Filename>
 			<Filename>carla-rack.desktop</Filename>
+			<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+			<Filename>org.kde.contactthemeeditor.desktop</Filename>
+			<Filename>org.kde.headerthemeeditor.desktop</Filename>
+			<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+			<Filename>org.kde.pimdataexporter.desktop</Filename>
+			<Filename>org.kde.sieveeditor.desktop</Filename>
+			<Filename>org.kde.ktnef.desktop</Filename>
+			<Filename>org.kde.kwatchgnupg.desktop</Filename>
+			<Filename>im-chooser.desktop</Filename>
+			<Filename>setroubleshoot.desktop</Filename>
 		</Exclude>
 		<Menu>
 			<Name>More</Name>
@@ -127,6 +199,16 @@
 				<Filename>carla-jack-single.desktop</Filename>
 				<Filename>carla-patchbay.desktop</Filename>
 				<Filename>carla-rack.desktop</Filename>
+				<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+				<Filename>org.kde.contactthemeeditor.desktop</Filename>
+				<Filename>org.kde.headerthemeeditor.desktop</Filename>
+				<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+				<Filename>org.kde.pimdataexporter.desktop</Filename>
+				<Filename>org.kde.sieveeditor.desktop</Filename>
+				<Filename>org.kde.ktnef.desktop</Filename>
+				<Filename>org.kde.kwatchgnupg.desktop</Filename>
+				<Filename>im-chooser.desktop</Filename>
+				<Filename>setroubleshoot.desktop</Filename>
 			</Exclude>
 		</Menu>
 	</Menu>
@@ -143,6 +225,16 @@
 			<Filename>carla-jack-single.desktop</Filename>
 			<Filename>carla-patchbay.desktop</Filename>
 			<Filename>carla-rack.desktop</Filename>
+			<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+			<Filename>org.kde.contactthemeeditor.desktop</Filename>
+			<Filename>org.kde.headerthemeeditor.desktop</Filename>
+			<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+			<Filename>org.kde.pimdataexporter.desktop</Filename>
+			<Filename>org.kde.sieveeditor.desktop</Filename>
+			<Filename>org.kde.ktnef.desktop</Filename>
+			<Filename>org.kde.kwatchgnupg.desktop</Filename>
+			<Filename>im-chooser.desktop</Filename>
+			<Filename>setroubleshoot.desktop</Filename>
 		</Exclude>
 		<Menu>
 			<Name>More</Name>
@@ -157,6 +249,16 @@
 				<Filename>carla-jack-single.desktop</Filename>
 				<Filename>carla-patchbay.desktop</Filename>
 				<Filename>carla-rack.desktop</Filename>
+				<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+				<Filename>org.kde.contactthemeeditor.desktop</Filename>
+				<Filename>org.kde.headerthemeeditor.desktop</Filename>
+				<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+				<Filename>org.kde.pimdataexporter.desktop</Filename>
+				<Filename>org.kde.sieveeditor.desktop</Filename>
+				<Filename>org.kde.ktnef.desktop</Filename>
+				<Filename>org.kde.kwatchgnupg.desktop</Filename>
+				<Filename>im-chooser.desktop</Filename>
+				<Filename>setroubleshoot.desktop</Filename>
 			</Exclude>
 		</Menu>
 	</Menu>
@@ -173,6 +275,16 @@
 			<Filename>carla-jack-single.desktop</Filename>
 			<Filename>carla-patchbay.desktop</Filename>
 			<Filename>carla-rack.desktop</Filename>
+			<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+			<Filename>org.kde.contactthemeeditor.desktop</Filename>
+			<Filename>org.kde.headerthemeeditor.desktop</Filename>
+			<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+			<Filename>org.kde.pimdataexporter.desktop</Filename>
+			<Filename>org.kde.sieveeditor.desktop</Filename>
+			<Filename>org.kde.ktnef.desktop</Filename>
+			<Filename>org.kde.kwatchgnupg.desktop</Filename>
+			<Filename>im-chooser.desktop</Filename>
+			<Filename>setroubleshoot.desktop</Filename>
 		</Exclude>
 		<Menu>
 			<Name>More</Name>
@@ -187,6 +299,16 @@
 				<Filename>carla-jack-single.desktop</Filename>
 				<Filename>carla-patchbay.desktop</Filename>
 				<Filename>carla-rack.desktop</Filename>
+				<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+				<Filename>org.kde.contactthemeeditor.desktop</Filename>
+				<Filename>org.kde.headerthemeeditor.desktop</Filename>
+				<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+				<Filename>org.kde.pimdataexporter.desktop</Filename>
+				<Filename>org.kde.sieveeditor.desktop</Filename>
+				<Filename>org.kde.ktnef.desktop</Filename>
+				<Filename>org.kde.kwatchgnupg.desktop</Filename>
+				<Filename>im-chooser.desktop</Filename>
+				<Filename>setroubleshoot.desktop</Filename>
 			</Exclude>
 		</Menu>
 	</Menu>
@@ -203,6 +325,16 @@
 			<Filename>carla-jack-single.desktop</Filename>
 			<Filename>carla-patchbay.desktop</Filename>
 			<Filename>carla-rack.desktop</Filename>
+			<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+			<Filename>org.kde.contactthemeeditor.desktop</Filename>
+			<Filename>org.kde.headerthemeeditor.desktop</Filename>
+			<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+			<Filename>org.kde.pimdataexporter.desktop</Filename>
+			<Filename>org.kde.sieveeditor.desktop</Filename>
+			<Filename>org.kde.ktnef.desktop</Filename>
+			<Filename>org.kde.kwatchgnupg.desktop</Filename>
+			<Filename>im-chooser.desktop</Filename>
+			<Filename>setroubleshoot.desktop</Filename>
 		</Exclude>
 		<Menu>
 			<Name>More</Name>
@@ -217,6 +349,16 @@
 				<Filename>carla-jack-single.desktop</Filename>
 				<Filename>carla-patchbay.desktop</Filename>
 				<Filename>carla-rack.desktop</Filename>
+				<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+				<Filename>org.kde.contactthemeeditor.desktop</Filename>
+				<Filename>org.kde.headerthemeeditor.desktop</Filename>
+				<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+				<Filename>org.kde.pimdataexporter.desktop</Filename>
+				<Filename>org.kde.sieveeditor.desktop</Filename>
+				<Filename>org.kde.ktnef.desktop</Filename>
+				<Filename>org.kde.kwatchgnupg.desktop</Filename>
+				<Filename>im-chooser.desktop</Filename>
+				<Filename>setroubleshoot.desktop</Filename>
 			</Exclude>
 		</Menu>
 	</Menu>
@@ -233,6 +375,16 @@
 			<Filename>carla-jack-single.desktop</Filename>
 			<Filename>carla-patchbay.desktop</Filename>
 			<Filename>carla-rack.desktop</Filename>
+			<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+			<Filename>org.kde.contactthemeeditor.desktop</Filename>
+			<Filename>org.kde.headerthemeeditor.desktop</Filename>
+			<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+			<Filename>org.kde.pimdataexporter.desktop</Filename>
+			<Filename>org.kde.sieveeditor.desktop</Filename>
+			<Filename>org.kde.ktnef.desktop</Filename>
+			<Filename>org.kde.kwatchgnupg.desktop</Filename>
+			<Filename>im-chooser.desktop</Filename>
+			<Filename>setroubleshoot.desktop</Filename>
 		</Exclude>
 		<Menu>
 			<Name>More</Name>
@@ -247,6 +399,16 @@
 				<Filename>carla-jack-single.desktop</Filename>
 				<Filename>carla-patchbay.desktop</Filename>
 				<Filename>carla-rack.desktop</Filename>
+				<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+				<Filename>org.kde.contactthemeeditor.desktop</Filename>
+				<Filename>org.kde.headerthemeeditor.desktop</Filename>
+				<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+				<Filename>org.kde.pimdataexporter.desktop</Filename>
+				<Filename>org.kde.sieveeditor.desktop</Filename>
+				<Filename>org.kde.ktnef.desktop</Filename>
+				<Filename>org.kde.kwatchgnupg.desktop</Filename>
+				<Filename>im-chooser.desktop</Filename>
+				<Filename>setroubleshoot.desktop</Filename>
 			</Exclude>
 		</Menu>
 	</Menu>
@@ -263,6 +425,16 @@
 			<Filename>carla-jack-single.desktop</Filename>
 			<Filename>carla-patchbay.desktop</Filename>
 			<Filename>carla-rack.desktop</Filename>
+			<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+			<Filename>org.kde.contactthemeeditor.desktop</Filename>
+			<Filename>org.kde.headerthemeeditor.desktop</Filename>
+			<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+			<Filename>org.kde.pimdataexporter.desktop</Filename>
+			<Filename>org.kde.sieveeditor.desktop</Filename>
+			<Filename>org.kde.ktnef.desktop</Filename>
+			<Filename>org.kde.kwatchgnupg.desktop</Filename>
+			<Filename>im-chooser.desktop</Filename>
+			<Filename>setroubleshoot.desktop</Filename>
 		</Exclude>
 		<Menu>
 			<Name>More</Name>
@@ -277,6 +449,16 @@
 				<Filename>carla-jack-single.desktop</Filename>
 				<Filename>carla-patchbay.desktop</Filename>
 				<Filename>carla-rack.desktop</Filename>
+				<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+				<Filename>org.kde.contactthemeeditor.desktop</Filename>
+				<Filename>org.kde.headerthemeeditor.desktop</Filename>
+				<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+				<Filename>org.kde.pimdataexporter.desktop</Filename>
+				<Filename>org.kde.sieveeditor.desktop</Filename>
+				<Filename>org.kde.ktnef.desktop</Filename>
+				<Filename>org.kde.kwatchgnupg.desktop</Filename>
+				<Filename>im-chooser.desktop</Filename>
+				<Filename>setroubleshoot.desktop</Filename>
 			</Exclude>
 		</Menu>
 		<Menu>
@@ -292,6 +474,16 @@
 				<Filename>carla-jack-single.desktop</Filename>
 				<Filename>carla-patchbay.desktop</Filename>
 				<Filename>carla-rack.desktop</Filename>
+				<Filename>org.kde.contactprintthemeeditor.desktop</Filename>
+				<Filename>org.kde.contactthemeeditor.desktop</Filename>
+				<Filename>org.kde.headerthemeeditor.desktop</Filename>
+				<Filename>org.kde.akonadiimportwizard.desktop</Filename>
+				<Filename>org.kde.pimdataexporter.desktop</Filename>
+				<Filename>org.kde.sieveeditor.desktop</Filename>
+				<Filename>org.kde.ktnef.desktop</Filename>
+				<Filename>org.kde.kwatchgnupg.desktop</Filename>
+				<Filename>im-chooser.desktop</Filename>
+				<Filename>setroubleshoot.desktop</Filename>
 			</Exclude>
 		</Menu>
 	</Menu>

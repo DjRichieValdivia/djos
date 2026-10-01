@@ -3,8 +3,12 @@
 #   - la decoración de ventanas Aurorae "DJOSGlass": barra de título con esquinas redondeadas y sombra suave
 #     (decoration.svg, con las partes en PNG a 2x) y el semáforo (close/minimize/maximize/restore.svg)
 #   - el fondo de pantalla DJOS-Glass (todas las resoluciones de DJOS) y su vista previa
-#   - el ícono del Launchpad del dock (djos-launchpad.svg)
+#   - los íconos de apps de DJOS Glass, todos con la misma placa redondeada (Launchpad, Archivos, Configuración,
+#     Discover, Terminal, DJOS Preview): dibujos propios, sin logos de nadie
 #   - las vistas previas del tema global org.djos.glass (las que muestra el selector de temas)
+#   - el tema de Plasma "djos-glass": la barra de los paneles transparente (el dock dibuja su propio vidrio y la de
+#     arriba deja ver el fondo, como en macOS) y los menús que se abren (de la bandeja, del reloj…) con esquinas de
+#     12 px, sombra suave y desenfoque; lo demás lo toma de Breeze
 # Se corre a mano cuando cambia el diseño, en un Fedora con python3-pillow, python3-numpy, librsvg2-tools, la fuente
 # Inter y Papirus (para los íconos de la vista previa); por ejemplo desde la raíz del repo:
 #   podman run --rm -v "$PWD":/repo:z registry.fedoraproject.org/fedora:44 sh -c \
@@ -21,6 +25,7 @@ AUR = os.path.join(SYS, "usr/share/aurorae/themes/DJOSGlass")
 LNF = os.path.join(SYS, "usr/share/plasma/look-and-feel/org.djos.glass/contents/previews")
 WALL = os.path.join(SYS, "usr/share/wallpapers/DJOS-Glass")
 APPS = os.path.join(SYS, "usr/share/icons/Papirus-Dark-DJOS/scalable/apps")
+PSTYLE = os.path.join(SYS, "usr/share/plasma/desktoptheme/djos-glass")
 
 S = 2   # las partes en PNG van a 2x: nítidas también en pantallas HiDPI
 
@@ -177,13 +182,104 @@ def button_svg(kind):
             f'viewBox="0 0 {20 * len(states)} 16">\n{body}\n</svg>\n')
 
 
+# ---------------------------------------------------------------- tema de Plasma (paneles y menús)
+NINE = ("topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright")
+
+
+def svg_doc(body, note):
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            f'<!-- DJOS Glass: {note} (lo genera branding/gen-glass.py: no editar a mano) -->\n'
+            '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
+            'width="600" height="400" viewBox="0 0 600 400">\n' + "\n".join(body) + "\n</svg>\n")
+
+
+def panel_svg():
+    """la barra de los paneles: transparente (nada que dibujar, sin sombra ni desenfoque), con márgenes chicos"""
+    body = []
+    for i, name in enumerate(NINE):
+        body.append(f'<rect id="{name}" x="{i * 4}" y="0" width="2" height="2" fill="#000000" fill-opacity="0"/>')
+    for i, side in enumerate(("top", "bottom", "left", "right")):
+        body.append(f'<rect id="hint-{side}-margin" x="{i * 6}" y="10" width="3" height="3" fill="#ff00ff" fill-opacity="0"/>')
+    return svg_doc(body, "barra de los paneles, transparente")
+
+
+def dialog_svg(alpha):
+    """los menús: esquinas de 12, borde fino claro, sombra suave (afuera) y la máscara para el desenfoque"""
+    R, PT, PB, PL, PR = 12, 10, 22, 16, 16      # radio y lo que la sombra sale de cada lado
+    cw = ch = 80
+    Wc, Hc = PL + cw + PR, PT + ch + PB
+    fill = (38, 38, 40, round(255 * alpha))
+    # el menú
+    box = Image.new("RGBA", (cw * S, ch * S), (0, 0, 0, 0))
+    m = Image.new("L", box.size, 0)
+    ImageDraw.Draw(m).rounded_rectangle((0, 0, cw * S - 1, ch * S - 1), radius=R * S, fill=255)
+    box.paste(Image.new("RGBA", box.size, fill), (0, 0), m)
+    ImageDraw.Draw(box).rounded_rectangle((0, 0, cw * S - 1, ch * S - 1), radius=R * S,
+                                         outline=(255, 255, 255, 30), width=S)
+    # la sombra, sin lo que queda debajo del menú (KWin la dibuja alrededor)
+    sh = Image.new("L", (Wc * S, Hc * S), 0)
+    sm = Image.new("L", (cw * S, ch * S), 0)
+    ImageDraw.Draw(sm).rounded_rectangle((0, 0, cw * S - 1, ch * S - 1), radius=R * S, fill=255)
+    sh.paste(sm, (PL * S, (PT + 5) * S))
+    sh = sh.filter(ImageFilter.GaussianBlur(7 * S)).point(lambda v: v * 120 // 255)
+    hole = Image.new("L", sh.size, 0)
+    hole.paste(sm, (PL * S, PT * S))
+    sh = Image.composite(Image.new("L", sh.size, 0), sh, hole)
+    shadow = Image.new("RGBA", sh.size, (0, 0, 0, 0))
+    shadow.putalpha(sh)
+
+    body = []
+    ox = 0
+
+    def put(prefix, img, parts, scale):
+        nonlocal ox
+        oy = 0
+        for name, (x, y, w, h) in parts.items():
+            piece = img.crop((x * scale, y * scale, (x + w) * scale, (y + h) * scale))
+            body.append(f'<image id="{prefix}{name}" x="{ox}" y="{oy}" width="{w}" height="{h}" '
+                        f'preserveAspectRatio="none" xlink:href="data:image/png;base64,{png_b64(piece)}"/>')
+            oy += h + 2
+        ox += 70
+
+    c = cw // 2
+    put("", box, {"topleft": (0, 0, R, R), "top": (c, 0, 1, R), "topright": (cw - R, 0, R, R),
+                  "left": (0, c, R, 1), "center": (c, c, 1, 1), "right": (cw - R, c, R, 1),
+                  "bottomleft": (0, ch - R, R, R), "bottom": (c, ch - R, 1, R), "bottomright": (cw - R, ch - R, R, R)}, S)
+    # sombra: las esquinas cubren la parte redondeada; los costados, solo lo que queda afuera
+    cx, cy = PL + cw // 2, PT + ch // 2
+    put("shadow-", shadow, {"topleft": (0, 0, PL + R, PT + R), "top": (cx, 0, 1, PT),
+                            "topright": (Wc - PR - R, 0, PR + R, PT + R), "left": (0, cy, PL, 1),
+                            "center": (cx, cy, 1, 1), "right": (Wc - PR, cy, PR, 1),
+                            "bottomleft": (0, Hc - PB - R, PL + R, PB + R), "bottom": (cx, Hc - PB, 1, PB),
+                            "bottomright": (Wc - PR - R, Hc - PB - R, PR + R, PB + R)}, S)
+    # márgenes del contenido y de la sombra
+    y0 = 300
+    for i, (side, v) in enumerate((("top", 6), ("bottom", 6), ("left", 6), ("right", 6))):
+        body.append(f'<rect id="hint-{side}-margin" x="{i * 10}" y="{y0}" width="{v}" height="{v}" fill="#ff00ff" fill-opacity="0"/>')
+    for i, (side, v) in enumerate((("top", PT), ("bottom", PB), ("left", PL), ("right", PR))):
+        body.append(f'<rect id="shadow-hint-{side}-margin" x="{60 + i * 40}" y="{y0}" width="{v}" height="{v}" '
+                    'fill="#ff00ff" fill-opacity="0"/>')
+    # máscara (desenfoque detrás y forma del menú): el mismo redondeo, en negro
+    q = R
+    mask = {
+        "topleft": f'<path id="mask-topleft" d="M{q},0 A{q},{q} 0 0 0 0,{q} L{q},{q} Z" transform="translate(400 0)"/>',
+        "topright": f'<path id="mask-topright" d="M0,0 A{q},{q} 0 0 1 {q},{q} L0,{q} Z" transform="translate(420 0)"/>',
+        "bottomleft": f'<path id="mask-bottomleft" d="M0,0 A{q},{q} 0 0 0 {q},{q} L{q},0 Z" transform="translate(440 0)"/>',
+        "bottomright": f'<path id="mask-bottomright" d="M{q},0 A{q},{q} 0 0 1 0,{q} L0,0 Z" transform="translate(460 0)"/>',
+    }
+    body += list(mask.values())
+    for i, (name, w, h) in enumerate((("top", 1, q), ("bottom", 1, q), ("left", q, 1), ("right", q, 1), ("center", 1, 1))):
+        body.append(f'<rect id="mask-{name}" x="{400 + i * 20}" y="40" width="{w}" height="{h}" fill="#000000"/>')
+    return svg_doc(body, "fondo de los menús")
+
+
 # ---------------------------------------------------------------- fondo de pantalla
 def wallpaper(W, H):
-    """capas de vidrio que se cruzan en diagonal (naranja, magenta y violeta) sobre un fondo casi negro"""
+    """capas de vidrio que se cruzan en diagonal (violeta, índigo, azul y celeste) sobre un fondo casi negro"""
     y, x = np.mgrid[0:H, 0:W].astype(np.float32)
     u, v = x / W, y / H
     img = np.zeros((H, W, 3), np.float32)
-    base_top = np.array([20, 16, 26], np.float32); base_bot = np.array([6, 6, 10], np.float32)
+    base_top = np.array([14, 16, 30], np.float32); base_bot = np.array([5, 6, 12], np.float32)
     img[:] = base_top * (1 - v[..., None]) + base_bot * v[..., None]
 
     def band(center, amp, freq, phase, width, soft):
@@ -193,10 +289,10 @@ def wallpaper(W, H):
         return np.clip(1 - np.abs(d), 0, 1) ** soft, d
 
     layers = [   # centro, amplitud, frecuencia, fase, ancho, suavidad, color arriba, color abajo, intensidad
-        (0.78, 0.10, 0.55, 0.10, 0.34, 1.6, (120, 30, 140), (40, 10, 70), 0.55),
-        (0.66, 0.12, 0.45, 0.32, 0.26, 1.4, (255, 70, 120), (150, 20, 90), 0.55),
-        (0.56, 0.11, 0.50, 0.55, 0.20, 1.3, (255, 140, 40), (230, 70, 20), 0.75),
-        (0.48, 0.09, 0.60, 0.78, 0.12, 1.2, (255, 190, 110), (255, 110, 40), 0.55),
+        (0.78, 0.10, 0.55, 0.10, 0.34, 1.6, (96, 40, 170), (36, 14, 80), 0.55),
+        (0.66, 0.12, 0.45, 0.32, 0.26, 1.4, (120, 90, 255), (60, 30, 170), 0.55),
+        (0.56, 0.11, 0.50, 0.55, 0.20, 1.3, (30, 130, 255), (10, 70, 210), 0.75),
+        (0.48, 0.09, 0.60, 0.78, 0.12, 1.2, (120, 200, 255), (40, 140, 255), 0.55),
     ]
     for center, amp, freq, phase, width, soft, ca, cb, k in layers:
         a, d = band(center, amp, freq, phase, width, soft)
@@ -213,21 +309,86 @@ def wallpaper(W, H):
     return Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), "RGB")
 
 
-# ---------------------------------------------------------------- ícono del Launchpad (dock)
-def launchpad_svg():
-    colors = ["#ff7a1a", "#ff3b6b", "#bf5af2", "#0a84ff", "#30d0c4", "#32d74b", "#ffd60a", "#ff9f0a", "#8e8e93"]
-    cells = []
-    for i, c in enumerate(colors):
-        cx, cy = 15 + (i % 3) * 13, 15 + (i // 3) * 13
-        cells.append(f'<rect x="{cx}" y="{cy}" width="10" height="10" rx="3" fill="{c}"/>')
+# ---------------------------------------------------------------- íconos de apps (placas redondeadas)
+def tile(name, top, bottom, content, note, defs=""):
+    """una placa de 56 en 64 (radio 13.5, como los íconos de macOS desde Big Sur), con degradado, un brillo suave arriba
+    y un borde fino; adentro, el dibujo"""
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<!-- DJOS Glass: Launchpad del dock (todas las apps); lo genera branding/gen-glass.py -->\n'
+            f'<!-- DJOS Glass: {note} (lo genera branding/gen-glass.py: no editar a mano) -->\n'
             '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">\n'
-            ' <defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">'
-            '<stop offset="0" stop-color="#4a4a50"/><stop offset="1" stop-color="#1f1f23"/></linearGradient></defs>\n'
-            ' <rect x="4" y="4" width="56" height="56" rx="13" fill="url(#bg)"/>\n'
-            ' <rect x="4.5" y="4.5" width="55" height="55" rx="12.5" fill="none" stroke="#ffffff" stroke-opacity="0.14"/>\n'
-            ' ' + "\n ".join(cells) + "\n</svg>\n")
+            f' <defs><linearGradient id="{name}-bg" x1="0" y1="0" x2="0" y2="1">'
+            f'<stop offset="0" stop-color="{top}"/><stop offset="1" stop-color="{bottom}"/></linearGradient>'
+            f'<linearGradient id="{name}-hl" x1="0" y1="0" x2="0" y2="1">'
+            '<stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/>'
+            '<stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/></linearGradient>' + defs + '</defs>\n'
+            f' <rect x="4" y="4" width="56" height="56" rx="13.5" fill="url(#{name}-bg)"/>\n'
+            f' <rect x="4" y="4" width="56" height="56" rx="13.5" fill="url(#{name}-hl)"/>\n'
+            ' <rect x="4.4" y="4.4" width="55.2" height="55.2" rx="13.1" fill="none" stroke="#ffffff" stroke-opacity="0.14" stroke-width="0.8"/>\n'
+            + content + '\n</svg>\n')
+
+
+def gear_path(cx, cy, r_out, r_in, teeth, hole):
+    pts = []
+    for i in range(teeth * 4):
+        a = 2 * math.pi * i / (teeth * 4) - math.pi / 2
+        r = r_out if i % 4 in (1, 2) else r_in
+        pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+    d = "M" + " L".join(f"{x:.2f},{y:.2f}" for x, y in pts) + " Z"
+    d += (f" M{cx + hole:.2f},{cy:.2f} A{hole},{hole} 0 1 0 {cx - hole:.2f},{cy:.2f}"
+          f" A{hole},{hole} 0 1 0 {cx + hole:.2f},{cy:.2f} Z")
+    return d
+
+
+def app_icons():
+    out = {}
+    # Launchpad: todas las apps (la grilla de colores)
+    colors = ["#ff7a1a", "#ff3b6b", "#bf5af2", "#0a84ff", "#30d0c4", "#32d74b", "#ffd60a", "#ff9f0a", "#8e8e93"]
+    cells = "\n".join(f' <rect x="{15.5 + (i % 3) * 12.5}" y="{15.5 + (i // 3) * 12.5}" width="8.5" height="8.5" rx="2.6" fill="{c}"/>'
+                      for i, c in enumerate(colors))
+    out["djos-launchpad"] = tile("pad", "#4a4a50", "#1f1f23", cells, "Launchpad del dock (todas las apps)")
+    # Archivos: placa clara con la carpeta azul
+    folder = ('<defs><linearGradient id="fo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6cb8ff"/>'
+              '<stop offset="1" stop-color="#1f7cf0"/></linearGradient></defs>'
+              ' <path d="M15 21.5a3 3 0 0 1 3-3h8.6l3.6 3.6H46a3 3 0 0 1 3 3V44a3 3 0 0 1-3 3H18a3 3 0 0 1-3-3z" fill="#1463d6"/>'
+              ' <path d="M15 28a3 3 0 0 1 3-3h28a3 3 0 0 1 3 3v16a3 3 0 0 1-3 3H18a3 3 0 0 1-3-3z" fill="url(#fo)"/>'
+              ' <g stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.9">'
+              '<line x1="26" y1="34" x2="26" y2="39"/><line x1="30" y1="31" x2="30" y2="42"/><line x1="34" y1="33" x2="34" y2="40"/>'
+              '<line x1="38" y1="35" x2="38" y2="38"/></g>')
+    files = tile("files", "#f7f7f9", "#d6d6dc", folder, "Archivos (Dolphin)")
+    out["org.kde.dolphin"] = files
+    out["system-file-manager"] = files
+    # Configuración: engranaje blanco en gris
+    gear = (f' <path d="{gear_path(32, 32, 19, 14.5, 9, 6.2)}" fill="#ffffff" fill-rule="evenodd"/>'
+            ' <circle cx="32" cy="32" r="10.5" fill="none" stroke="#6e6e73" stroke-opacity="0.55" stroke-width="1.6"/>')
+    settings = tile("set", "#a7a7ad", "#5d5d63", gear, "Configuración del sistema")
+    out["systemsettings"] = settings
+    out["preferences-system"] = settings
+    # Discover: la bolsa, en azul
+    bag = (' <path d="M25.5 26v-2.5a6.5 6.5 0 0 1 13 0V26" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linecap="round"/>'
+           ' <path d="M19.5 26.5h25l-1.6 18.2a3 3 0 0 1-3 2.8H24.1a3 3 0 0 1-3-2.8z" fill="#ffffff"/>'
+           ' <path d="M29 32.5v9l7.5-4.5z" fill="#1d6fe8"/>')
+    out["plasmadiscover"] = tile("disc", "#4cb0ff", "#1560e0", bag, "Discover (tienda de apps)")
+    # Terminal
+    term = (' <path d="M19 24.5l8.5 7.5-8.5 7.5" fill="none" stroke="#ffffff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>'
+            ' <path d="M31.5 40.5h13" stroke="#ffffff" stroke-width="3.4" stroke-linecap="round"/>')
+    terminal = tile("term", "#3a3a3f", "#141416", term, "Terminal (Konsole)")
+    out["utilities-terminal"] = terminal
+    out["org.kde.konsole"] = terminal
+    # DJOS Preview: forma de onda azul y el "play"
+    wave_h = [6, 12, 20, 14, 24, 16, 9, 18, 11, 6]
+    bars = "".join(f'<line x1="{14 + i * 3.6:.1f}" y1="{32 - h / 2:.1f}" x2="{14 + i * 3.6:.1f}" y2="{32 + h / 2:.1f}"/>'
+                   for i, h in enumerate(wave_h))
+    prev = (' <g stroke="#3d9bff" stroke-width="2.2" stroke-linecap="round">' + bars + '</g>'
+            ' <circle cx="44.5" cy="43.5" r="8.5" fill="#ffffff"/>'
+            ' <path d="M42 39.2v8.6l7-4.3z" fill="#1c1c1f"/>')
+    out["djospreview"] = tile("prev", "#3a3a3f", "#141416", prev, "DJOS Preview (escuchar temas)")
+    # DJOS Center: mesa de mezcla (faders) en índigo (distinta de Discover, que es azul)
+    faders = (' <g stroke="#1c1450" stroke-width="3" stroke-linecap="round" opacity="0.85">'
+              '<line x1="22" y1="16" x2="22" y2="48"/><line x1="32" y1="16" x2="32" y2="48"/><line x1="42" y1="16" x2="42" y2="48"/></g>'
+              ' <g fill="#ffffff"><rect x="16.5" y="35" width="11" height="6" rx="2"/><rect x="26.5" y="21" width="11" height="6" rx="2"/>'
+              '<rect x="36.5" y="29" width="11" height="6" rx="2"/></g>')
+    out["djoscenter"] = tile("center", "#8f7bff", "#4b34d6", faders, "DJOS Center")
+    return out
 
 
 # ---------------------------------------------------------------- vistas previas del tema
@@ -263,17 +424,17 @@ def preview(W, H, wall):
     for i in range(7):
         y0 = wy + (70 + i * 34) * k
         d.rounded_rectangle((wx + 16 * k, y0, wx + (16 + 110 - (i % 3) * 20) * k, y0 + 12 * k), radius=6 * k,
-                            fill=(255, 122, 26, 255) if i == 1 else (70, 70, 74, 255))
+                            fill=(0, 100, 215, 255) if i == 1 else (70, 70, 74, 255))
     for i in range(10):
         y0 = wy + (66 + i * 42) * k
         if y0 + 24 * k > wy + wh:
             break
-        d.rounded_rectangle((wx + 214 * k, y0, wx + 250 * k, y0 + 28 * k), radius=5 * k, fill=(255, 140, 40, 255))
+        d.rounded_rectangle((wx + 214 * k, y0, wx + 250 * k, y0 + 28 * k), radius=5 * k, fill=(82, 148, 226, 255))
         d.rounded_rectangle((wx + 266 * k, y0 + 8 * k, wx + (266 + 260 - (i % 4) * 40) * k, y0 + 20 * k),
                             radius=6 * k, fill=(82, 82, 86, 255))
     img.alpha_composite(win)
     # barra de arriba (translúcida)
-    bar = Image.new("RGBA", (W, int(28 * k)), (20, 20, 22, 170))
+    bar = Image.new("RGBA", (W, int(28 * k)), (20, 20, 22, 60))   # casi transparente, como la de verdad
     img.alpha_composite(bar, (0, 0))
     d = ImageDraw.Draw(img)
     f = font("semibold", max(10, int(14 * k)))
@@ -287,7 +448,7 @@ def preview(W, H, wall):
     clock = "Wed Oct 1  9:41 PM"
     d.text((W - 20 * k - d.textlength(clock, font=fr), 6 * k), clock, font=fr, fill=(240, 240, 242, 255))
     # dock flotante y centrado
-    names = ["richiedj", "djoscenter", "firefox", "system-file-manager", "utilities-terminal", "systemsettings",
+    names = ["richiedj", "firefox", "system-file-manager", "utilities-terminal", "djoscenter", "systemsettings",
              "plasmadiscover", "djos-launchpad", "user-trash"]
     isz, gap = int(52 * k), int(10 * k)
     dw = len(names) * isz + (len(names) + 1) * gap + int(14 * k)
@@ -324,8 +485,18 @@ def main():
         with open(os.path.join(AUR, kind + ".svg"), "w") as f:
             f.write(button_svg(kind))
 
-    with open(os.path.join(APPS, "djos-launchpad.svg"), "w") as f:
-        f.write(launchpad_svg())
+    for name, svg in app_icons().items():
+        with open(os.path.join(APPS, name + ".svg"), "w") as f:
+            f.write(svg)
+
+    for sub in ("widgets", "translucent/widgets", "opaque/widgets"):
+        os.makedirs(os.path.join(PSTYLE, sub), exist_ok=True)
+        with open(os.path.join(PSTYLE, sub, "panel-background.svg"), "w") as f:
+            f.write(panel_svg())
+    for sub, alpha in (("dialogs", 0.98), ("translucent/dialogs", 0.84)):
+        os.makedirs(os.path.join(PSTYLE, sub), exist_ok=True)
+        with open(os.path.join(PSTYLE, sub, "background.svg"), "w") as f:
+            f.write(dialog_svg(alpha))
 
     os.makedirs(os.path.join(WALL, "contents/images"), exist_ok=True)
     big = wallpaper(3840, 2160)

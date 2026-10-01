@@ -10,7 +10,7 @@ if (applicationExists("richiedj.desktop")) {
         var widgets = all[i].widgets();
         for (var j = 0; j < widgets.length; ++j) {
             var w = widgets[j];
-            if (w.type !== "org.kde.plasma.icontasks" && w.type !== "org.kde.plasma.taskmanager")
+            if (w.type !== "org.kde.plasma.icontasks" && w.type !== "org.kde.plasma.taskmanager" && w.type !== "org.djos.dock")
                 continue;
             w.currentConfigGroup = ["General"];
             var current = w.readConfig("launchers", []);

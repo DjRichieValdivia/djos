@@ -1,16 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- DJOS Glass: Launchpad del dock (todas las apps); lo genera branding/gen-glass.py -->
+<!-- DJOS Glass: Launchpad del dock (todas las apps) (lo genera branding/gen-glass.py: no editar a mano) -->
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
- <defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a4a50"/><stop offset="1" stop-color="#1f1f23"/></linearGradient></defs>
- <rect x="4" y="4" width="56" height="56" rx="13" fill="url(#bg)"/>
- <rect x="4.5" y="4.5" width="55" height="55" rx="12.5" fill="none" stroke="#ffffff" stroke-opacity="0.14"/>
- <rect x="15" y="15" width="10" height="10" rx="3" fill="#ff7a1a"/>
- <rect x="28" y="15" width="10" height="10" rx="3" fill="#ff3b6b"/>
- <rect x="41" y="15" width="10" height="10" rx="3" fill="#bf5af2"/>
- <rect x="15" y="28" width="10" height="10" rx="3" fill="#0a84ff"/>
- <rect x="28" y="28" width="10" height="10" rx="3" fill="#30d0c4"/>
- <rect x="41" y="28" width="10" height="10" rx="3" fill="#32d74b"/>
- <rect x="15" y="41" width="10" height="10" rx="3" fill="#ffd60a"/>
- <rect x="28" y="41" width="10" height="10" rx="3" fill="#ff9f0a"/>
- <rect x="41" y="41" width="10" height="10" rx="3" fill="#8e8e93"/>
+ <defs><linearGradient id="pad-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a4a50"/><stop offset="1" stop-color="#1f1f23"/></linearGradient><linearGradient id="pad-hl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/><stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/></linearGradient></defs>
+ <rect x="4" y="4" width="56" height="56" rx="13.5" fill="url(#pad-bg)"/>
+ <rect x="4" y="4" width="56" height="56" rx="13.5" fill="url(#pad-hl)"/>
+ <rect x="4.4" y="4.4" width="55.2" height="55.2" rx="13.1" fill="none" stroke="#ffffff" stroke-opacity="0.14" stroke-width="0.8"/>
+ <rect x="15.5" y="15.5" width="8.5" height="8.5" rx="2.6" fill="#ff7a1a"/>
+ <rect x="28.0" y="15.5" width="8.5" height="8.5" rx="2.6" fill="#ff3b6b"/>
+ <rect x="40.5" y="15.5" width="8.5" height="8.5" rx="2.6" fill="#bf5af2"/>
+ <rect x="15.5" y="28.0" width="8.5" height="8.5" rx="2.6" fill="#0a84ff"/>
+ <rect x="28.0" y="28.0" width="8.5" height="8.5" rx="2.6" fill="#30d0c4"/>
+ <rect x="40.5" y="28.0" width="8.5" height="8.5" rx="2.6" fill="#32d74b"/>
+ <rect x="15.5" y="40.5" width="8.5" height="8.5" rx="2.6" fill="#ffd60a"/>
+ <rect x="28.0" y="40.5" width="8.5" height="8.5" rx="2.6" fill="#ff9f0a"/>
+ <rect x="40.5" y="40.5" width="8.5" height="8.5" rx="2.6" fill="#8e8e93"/>
 </svg>

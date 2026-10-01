@@ -1,5 +1,5 @@
-# DJOS Glass: los grises de macOS en modo oscuro (ventanas, listas, barras de título) con el naranja de DJOS
-# como acento (macOS también lo ofrece) y los colores de sistema de Apple para links, errores y avisos.
+# DJOS Glass: los grises de macOS en modo oscuro (ventanas, listas, barras de título) con el azul de macOS como
+# acento y los colores de sistema de Apple para links, errores y avisos.
 
 [ColorEffects:Disabled]
 Color=56,56,56
@@ -24,9 +24,9 @@ IntensityEffect=0
 [Colors:Button]
 BackgroundAlternate=68,68,72
 BackgroundNormal=60,60,64
-DecorationFocus=255,122,26
-DecorationHover=255,148,71
-ForegroundActive=255,148,71
+DecorationFocus=10,132,255
+DecorationHover=64,156,255
+ForegroundActive=64,156,255
 ForegroundInactive=152,152,157
 ForegroundLink=10,132,255
 ForegroundNegative=255,69,58
@@ -38,9 +38,9 @@ ForegroundVisited=191,90,242
 [Colors:Complementary]
 BackgroundAlternate=34,34,36
 BackgroundNormal=28,28,30
-DecorationFocus=255,122,26
-DecorationHover=255,148,71
-ForegroundActive=255,148,71
+DecorationFocus=10,132,255
+DecorationHover=64,156,255
+ForegroundActive=64,156,255
 ForegroundInactive=152,152,157
 ForegroundLink=10,132,255
 ForegroundNegative=255,69,58
@@ -52,9 +52,9 @@ ForegroundVisited=191,90,242
 [Colors:Header]
 BackgroundAlternate=48,48,50
 BackgroundNormal=54,54,56
-DecorationFocus=255,122,26
-DecorationHover=255,148,71
-ForegroundActive=255,148,71
+DecorationFocus=10,132,255
+DecorationHover=64,156,255
+ForegroundActive=64,156,255
 ForegroundInactive=152,152,157
 ForegroundLink=10,132,255
 ForegroundNegative=255,69,58
@@ -66,9 +66,9 @@ ForegroundVisited=191,90,242
 [Colors:Header][Inactive]
 BackgroundAlternate=40,40,42
 BackgroundNormal=44,44,46
-DecorationFocus=255,122,26
-DecorationHover=255,148,71
-ForegroundActive=255,148,71
+DecorationFocus=10,132,255
+DecorationHover=64,156,255
+ForegroundActive=64,156,255
 ForegroundInactive=152,152,157
 ForegroundLink=10,132,255
 ForegroundNegative=255,69,58
@@ -78,12 +78,12 @@ ForegroundPositive=50,215,75
 ForegroundVisited=191,90,242
 
 [Colors:Selection]
-BackgroundAlternate=176,78,12
-BackgroundNormal=217,96,14
-DecorationFocus=255,122,26
-DecorationHover=255,148,71
+BackgroundAlternate=0,80,176
+BackgroundNormal=0,100,215
+DecorationFocus=10,132,255
+DecorationHover=64,156,255
 ForegroundActive=255,255,255
-ForegroundInactive=255,226,204
+ForegroundInactive=204,224,255
 ForegroundLink=255,255,255
 ForegroundNegative=255,214,214
 ForegroundNeutral=255,240,190
@@ -94,9 +94,9 @@ ForegroundVisited=240,220,255
 [Colors:Tooltip]
 BackgroundAlternate=44,44,46
 BackgroundNormal=50,50,52
-DecorationFocus=255,122,26
-DecorationHover=255,148,71
-ForegroundActive=255,148,71
+DecorationFocus=10,132,255
+DecorationHover=64,156,255
+ForegroundActive=64,156,255
 ForegroundInactive=152,152,157
 ForegroundLink=10,132,255
 ForegroundNegative=255,69,58
@@ -108,9 +108,9 @@ ForegroundVisited=191,90,242
 [Colors:View]
 BackgroundAlternate=38,38,40
 BackgroundNormal=30,30,30
-DecorationFocus=255,122,26
-DecorationHover=255,148,71
-ForegroundActive=255,148,71
+DecorationFocus=10,132,255
+DecorationHover=64,156,255
+ForegroundActive=64,156,255
 ForegroundInactive=152,152,157
 ForegroundLink=10,132,255
 ForegroundNegative=255,69,58
@@ -122,9 +122,9 @@ ForegroundVisited=191,90,242
 [Colors:Window]
 BackgroundAlternate=36,36,38
 BackgroundNormal=42,42,44
-DecorationFocus=255,122,26
-DecorationHover=255,148,71
-ForegroundActive=255,148,71
+DecorationFocus=10,132,255
+DecorationHover=64,156,255
+ForegroundActive=64,156,255
 ForegroundInactive=152,152,157
 ForegroundLink=10,132,255
 ForegroundNegative=255,69,58

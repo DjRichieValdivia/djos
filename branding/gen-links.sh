@@ -1,11 +1,12 @@
 #!/usr/bin/bash
 # DJOS: arma los enlaces que el paquete trae en vez de copiar o pisar archivos de otros paquetes:
-#   - íconos Papirus-Dark-DJOS: una copia de Papirus-Dark hecha de enlaces, donde cada carpeta azul (y sus alias:
-#     inode-directory, user-home…) apunta a la naranja, como hace papirus-folders; 16x16 no (ahí Papirus-Dark no
-#     usa colores). Tiene que ser una copia COMPLETA (todas las carpetas de Papirus-Dark, y en places todos los
+#   - íconos Papirus-Dark-DJOS: una copia de Papirus-Dark hecha de enlaces. Las carpetas son del color FOLDER_COLOR
+#     (por defecto azul, las de Papirus tal cual: el acento de DJOS Glass; con otro color, cada carpeta azul y sus
+#     alias, inode-directory, user-home…, apuntan a la de ese color, como hace papirus-folders; 16x16 no: ahí
+#     Papirus-Dark no usa colores; hasta DJOS 2.3 eran naranjas). Tiene que ser una copia COMPLETA (todas las carpetas de Papirus-Dark, y en places todos los
 #     nombres): KDE acorta el nombre dentro de cada tema antes de mirar el tema padre, así que con solo las carpetas
 #     "network-wired-activated" o "network-bluetooth-activated" terminaban en nuestro "network" (una carpeta
-#     naranja en la bandeja). También arma el index.theme (el de Papirus-Dark más scalable/apps, los nuestros)
+#     en la bandeja). También arma el index.theme (el de Papirus-Dark más scalable/apps, los nuestros)
 #   - Plymouth "djos": las imágenes del tema spinner (el logo, watermark.png, es nuestro)
 # Se corre a mano cuando cambia Papirus o plymouth-theme-spinner, en un Fedora con papirus-icon-theme-dark,
 # plymouth-theme-spinner y git; por ejemplo desde la raíz del repo:
@@ -31,7 +32,9 @@ trap 'rm -f "$list"' EXIT
 # ruta<TAB>destino (relativo, así sirve en cualquier raíz). Las carpetas que ya eran carpetas (o enlaces) en
 # versiones anteriores siguen siéndolo: rpm no puede cambiar una carpeta por un enlace al actualizar
 PD=$ICONS/Papirus-Dark
-own="22x22 24x24 32x32 48x48 64x64"   # con carpetas naranjas
+own="22x22 24x24 32x32 48x48 64x64"   # con carpetas de color
+color=${FOLDER_COLOR:-blue}
+[ -e "$PD/48x48/places/folder-$color.svg" ] || die "Papirus-Dark no tiene carpetas de color $color"
 {
     for e in "$PD"/*; do
         b=${e##*/}
@@ -48,7 +51,7 @@ own="22x22 24x24 32x32 48x48 64x64"   # con carpetas naranjas
                 case " $own " in *" $s "*) printf '%s/%s@2x/%s\t../%s/%s\n' "$theme" "$s" "$sub" "$s" "$sub" ;; esac
                 continue
             fi
-            case $s in   # las grandes, con las naranjas de 48 y 64 (SVG: se ven igual)
+            case $s in   # las grandes, con las de color de 48 y 64 (SVG: se ven igual)
                 96x96) printf '%s/96x96/places\t../48x48/places\n' "$theme"; continue ;;
                 128x128) printf '%s/128x128/places\t../64x64/places\n' "$theme"; continue ;;
             esac
@@ -62,7 +65,8 @@ own="22x22 24x24 32x32 48x48 64x64"   # con carpetas naranjas
                     *)  case "$t" in
                             folder-bluegrey*) ;;
                             folder-blue.svg|folder-blue-*.svg|user-blue.svg|user-blue-*.svg)
-                                o=${t/-blue/-orange}; [ -e "$PD/$s/places/$o" ] || o= ;;
+                                [ "$color" = blue ] || o=${t/-blue/-$color}
+                                [ -n "$o" ] && [ ! -e "$PD/$s/places/$o" ] && o= ;;
                         esac ;;
                 esac
                 printf '%s/%s/places/%s\t../../../Papirus-Dark/%s/places/%s\n' "$theme" "$s" "$b" "$s" "${o:-$b}"
@@ -75,7 +79,7 @@ own="22x22 24x24 32x32 48x48 64x64"   # con carpetas naranjas
         printf '%s/%s\t../spinner/%s\n' "$ply" "$b" "$b"
     done
 } | LC_ALL=C sort > "$list"
-grep -q "^$theme/48x48/places/folder.svg	.*folder-orange" "$list" || die "no encontré folder.svg en Papirus-Dark: ¿cambió su estructura?"
+grep -q "^$theme/48x48/places/folder.svg	" "$list" || die "no encontré folder.svg en Papirus-Dark: ¿cambió su estructura?"
 grep -q "^$theme/22x22/panel	" "$list" || die "no encontré 22x22/panel en Papirus-Dark: ¿cambió su estructura?"
 
 # fuera los enlaces viejos (del índice y del disco); watermark.png no se toca (index.theme se rehace abajo)
@@ -103,19 +107,19 @@ done < "$list" | git update-index --add --index-info || die "no pude anotar los 
 # index.theme: el de Papirus-Dark con nuestro nombre, heredando de él, y scalable/apps (los íconos propios de DJOS)
 {
     cat <<'EOF'
-# DJOS: Papirus Dark con carpetas naranjas (lo mismo que hace papirus-folders, pero sin tocar los archivos de
-# Papirus). Es una copia completa de Papirus-Dark hecha de enlaces (las carpetas azules apuntan a las naranjas), y en
-# scalable/apps están los íconos propios de DJOS: Dolphin, Discover y Configuración (naranjas) Richie DJ (un vinilo) y el menú (djos-start). Lo arma
+# DJOS: Papirus Dark para DJOS (sin tocar los archivos de Papirus). Es una copia completa de Papirus-Dark hecha de
+# enlaces (con las carpetas del color de DJOS: azules, las de Papirus), y en
+# scalable/apps están los íconos propios de DJOS (placas de branding/gen-glass.py, Richie DJ como vinilo y los del menú). Lo arma
 # branding/gen-links.sh a partir del index.theme de Papirus-Dark: no editarlo a mano.
 EOF
     awk '
         /^Name=/ && !n++ { print "Name=Papirus-Dark-DJOS"; next }
-        /^Comment=/ && !c++ { print "Comment=Papirus Dark with orange folders (DJOS)"; next }
+        /^Comment=/ && !c++ { print "Comment=Papirus Dark for DJOS"; next }
         /^Inherits=/ && !i++ { print "Inherits=Papirus-Dark,breeze-dark,hicolor"; next }
         /^Directories=/ && !d++ { print $0 ",scalable/apps"; next }
         { print }
     ' "$PD/index.theme"
-    printf '\n# íconos de apps propios de DJOS (Dolphin, Discover, Configuración en naranja; Richie DJ, un vinilo; djos-start, el menú)\n'
+    printf '\n# íconos de apps propios de DJOS (las placas de DJOS Glass, Richie DJ como vinilo, los del menú)\n'
     printf '[scalable/apps]\nContext=Applications\nSize=48\nMinSize=16\nMaxSize=512\nType=Scalable\n'
 } > "$repo/$theme/index.theme" || die "no pude escribir index.theme"
 grep -q '^Directories=.*22x22/panel.*,scalable/apps$' "$repo/$theme/index.theme" || die "index.theme quedó mal"

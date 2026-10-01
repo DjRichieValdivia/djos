@@ -3,6 +3,7 @@
 # música e información del sistema) sobre Fedora KDE. La interfaz está en /usr/share/djos/center (QML con Kirigami,
 # el mismo aspecto que Configuración de Plasma); acá está todo lo que lee o cambia el sistema.
 #   center [--page overview|audio|performance|updates|apps|disks|about]
+import glob
 import json
 import os
 import re
@@ -109,6 +110,78 @@ def update_status():
         return {}
 
 
+# quién tiene abierta una placa (el "comm" del proceso), con un nombre que se entienda
+OWNER_NAMES = {"pipewire": "PipeWire (desktop audio)", "Richie DJ": "Richie DJ (ALSA Direct)", "richiedj": "Richie DJ (ALSA Direct)"}
+
+
+def card_live(n):
+    """lo que la placa está usando ahora mismo (el hardware, no lo configurado): por cada sentido abierto, frecuencia,
+    bits, canales y quién la abrió. Sale de /proc/asound (hw_params y status de cada subdispositivo)"""
+    live = {}
+    bits_usb = {}
+    stream = read(f"/proc/asound/card{n}/stream0")
+    for sect, key in (("Playback:", "playback"), ("Capture:", "capture")):
+        m = re.search(re.escape(sect) + r"(.*?)(?:\n(?:Playback|Capture):|\Z)", stream, re.S)
+        if m:
+            b = re.search(r"Bits: (\d+)", m.group(1))
+            if b:
+                bits_usb[key] = int(b.group(1))
+    for sub in sorted(glob.glob(f"/proc/asound/card{n}/pcm*/sub*")):
+        kind = "playback" if os.path.basename(os.path.dirname(sub)).endswith("p") else "capture"
+        if kind in live:
+            continue
+        hw = read(f"{sub}/hw_params")
+        if not hw or hw.strip() == "closed":
+            continue
+        rate = re.search(r"^rate: (\d+)", hw, re.M)
+        fmt = re.search(r"^format: (\S+)", hw, re.M)
+        ch = re.search(r"^channels: (\d+)", hw, re.M)
+        pid = re.search(r"owner_pid\s*:\s*(\d+)", read(f"{sub}/status"))
+        comm = read(f"/proc/{pid.group(1)}/comm").strip() if pid else ""
+        fbits = re.search(r"(\d+)", fmt.group(1)) if fmt else None
+        live[kind] = {
+            "rate": int(rate.group(1)) if rate else 0,
+            "bits": bits_usb.get(kind) or (int(fbits.group(1)) if fbits else 0),
+            "channels": int(ch.group(1)) if ch else 0,
+            "owner": OWNER_NAMES.get(comm, comm),
+        }
+    return live
+
+
+def usb_controller(path):
+    """el controlador USB (dirección PCI) del que cuelga un dispositivo de /sys/bus/usb/devices"""
+    m = re.findall(r"[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]", os.path.realpath(path))
+    return m[-1] if m else ""
+
+
+def usb_sharing():
+    """webcams en el mismo controlador USB que una placa de audio: [(webcam, placa)]. La cámara le saca ancho de banda
+    (cortes con la cámara prendida); otro puerto, de otro controlador, lo evita"""
+    cards = {}
+    for c in glob.glob("/proc/asound/card[0-9]*"):
+        bus = read(f"{c}/usbbus").strip()
+        n = c.rsplit("card", 1)[1]
+        # la placa de sonido de la misma webcam (su micrófono) no cuenta
+        dev = os.path.dirname(os.path.realpath(f"/sys/class/sound/card{n}/device"))
+        if any(read(f"{i}/bInterfaceClass").strip() == "0e" for i in glob.glob(f"{dev}/*:*")):
+            continue
+        if bus:
+            ctrl = usb_controller(f"/sys/bus/usb/devices/usb{int(bus.split('/')[0])}")
+            m = re.search(rf"^\s*{n} \[.*\]: .* - (.*)$", read("/proc/asound/cards"), re.M)
+            cards[ctrl] = m.group(1).strip() if m else "your audio interface"
+    out_ = []
+    for i in glob.glob("/sys/bus/usb/devices/*:*"):
+        if read(f"{i}/bInterfaceClass").strip() != "0e":   # video
+            continue
+        dev = os.path.dirname(os.path.realpath(i))
+        ctrl = usb_controller(dev)
+        if ctrl in cards:
+            pair = (read(f"{dev}/product").strip() or "a webcam", cards[ctrl])
+            if pair not in out_:
+                out_.append(pair)
+    return out_
+
+
 def sound_cards():
     cards = []
     for m in re.finditer(r"^\s*(\d+) \[(\S+)\s*\]: ([^\n]*)\n\s*(.*)$", read("/proc/asound/cards"), re.M):
@@ -116,7 +189,7 @@ def sound_cards():
         usb = os.path.exists(f"/proc/asound/card{n}/usbid")
         hdmi = "HDMI" in longname.upper() or "NVIDIA" in driver.upper() or cid.upper().startswith("NVIDIA")
         name = longname.split(" at ")[0]
-        cards.append({"index": int(n), "id": cid, "name": name, "usb": usb, "hdmi": hdmi})
+        cards.append({"index": int(n), "id": cid, "name": name, "usb": usb, "hdmi": hdmi, "live": card_live(n)})
     # la placa de audio (USB) primero; la salida de video (HDMI) al final
     cards.sort(key=lambda c: (not c["usb"], c["hdmi"], c["index"]))
     return cards
@@ -180,14 +253,17 @@ class Backend(QObject):
             memlock = resource.getrlimit(resource.RLIMIT_MEMLOCK)[0]
         except Exception:
             rtprio, memlock = 0, 0
+        allowed = re.findall(r"\d+", s.get("clock.allowed-rates", ""))
         return json.dumps({
             "rate": rate, "quantum": force_q or quantum,
+            "followRate": len(allowed) > 1,
             "configuredRate": self._conf_value("default.clock.rate", 48000),
             "configuredQuantum": self._conf_value("default.clock.quantum", 256),
             "cards": sound_cards(),
             "rtLimits": rtprio >= 90 and (memlock == -1 or memlock > 1 << 30),
             "kernelRt": "threadirqs" in cmdline and "preempt=full" in cmdline,
             "irqThreads": rt_threads,
+            "usbShared": [f"{w} and {c}" for w, c in usb_sharing()],
             "tuned": out(["tuned-adm", "active"]).split(":")[-1].strip(),
         })
 
@@ -195,21 +271,31 @@ class Backend(QObject):
         m = re.search(re.escape(key) + r"\s*=\s*(\d+)", read(PW_USER_CONF))
         return int(m.group(1)) if m else default
 
-    @Slot(int, int, result=bool)
-    def setAudio(self, rate, quantum):
-        """Frecuencia y tamaño de buffer de PipeWire: se guarda para el usuario y se aplica al instante."""
-        rate = rate if rate in (44100, 48000, 88200, 96000) else 48000
+    @Slot(result=str)
+    def cards(self):
+        """Solo las placas y lo que usan ahora (barato: para refrescar cada pocos segundos)."""
+        return json.dumps(sound_cards())
+
+    @Slot(int, int, bool, result=bool)
+    def setAudio(self, rate, quantum, follow=False):
+        """Frecuencia y tamaño de buffer de PipeWire: se guarda para el usuario y se aplica al instante. Frecuencia fija
+        (lo normal: sin "pops" de la placa al cambiar) o, con follow, la de lo que suena (sin conversión, bit-perfect)."""
+        rates = (44100, 48000, 88200, 96000)
+        rate = rate if rate in rates else 48000
         quantum = quantum if quantum in (32, 64, 128, 256, 512, 1024, 2048) else 256
+        allowed = list(rates) if follow else [rate]
+        allowed_txt = "[ " + " ".join(str(r) for r in allowed) + " ]"
         os.makedirs(os.path.dirname(PW_USER_CONF), exist_ok=True)
         with open(PW_USER_CONF, "w", encoding="utf-8") as f:
             f.write("# DJOS Center: frecuencia y buffer elegidos por el usuario\n"
                     "context.properties = {\n"
-                    f"    default.clock.rate        = {rate}\n"
-                    f"    default.clock.quantum     = {quantum}\n"
-                    f"    default.clock.min-quantum = {min(32, quantum)}\n"
+                    f"    default.clock.rate          = {rate}\n"
+                    f"    default.clock.allowed-rates = {allowed_txt}\n"
+                    f"    default.clock.quantum       = {quantum}\n"
+                    f"    default.clock.min-quantum   = {min(32, quantum)}\n"
                     "}\n")
-        for k, v in (("clock.rate", rate), ("clock.quantum", quantum), ("clock.min-quantum", min(32, quantum)),
-                     ("clock.force-rate", 0), ("clock.force-quantum", 0)):
+        for k, v in (("clock.rate", rate), ("clock.allowed-rates", allowed_txt), ("clock.quantum", quantum),
+                     ("clock.min-quantum", min(32, quantum)), ("clock.force-rate", 0), ("clock.force-quantum", 0)):
             out(["pw-metadata", "-n", "settings", "0", k, str(v)])
         return True
 

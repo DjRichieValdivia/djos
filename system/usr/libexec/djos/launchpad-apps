@@ -1,0 +1,129 @@
+#!/usr/bin/python3
+# DJOS Launchpad: la lista de programas (JSON, ordenada por nombre) que muestra el Launchpad de DJOS Glass. Lee los
+# .desktop como el menú de Plasma: el primero que aparece en XDG_DATA_HOME / XDG_DATA_DIRS gana (así los cambios del
+# usuario y las apps Flatpak cuentan), sin los NoDisplay/Hidden, los que no son para KDE, los que no tienen el
+# programa instalado (TryExec) y los que DJOS (u otro) saca del menú con <Exclude> en applications-merged/*.menu.
+# El nombre va en el idioma del usuario (Name[es_AR], Name[es], Name).
+import glob, json, os, re, shutil, sys
+import xml.etree.ElementTree as ET
+
+
+def data_dirs():
+    home = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    rest = os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share"
+    out = []
+    for d in [home] + rest.split(":"):
+        if d and d not in out:
+            out.append(d)
+    return out
+
+
+def config_dirs():
+    home = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    rest = os.environ.get("XDG_CONFIG_DIRS") or "/etc/xdg"
+    return [home] + [d for d in rest.split(":") if d]
+
+
+def langs():
+    lang = (os.environ.get("LC_ALL") or os.environ.get("LC_MESSAGES") or os.environ.get("LANG") or "").split(".")[0]
+    out = []
+    if lang and lang not in ("C", "POSIX"):
+        out.append(lang)
+        if "_" in lang:
+            out.append(lang.split("_")[0])
+    return out
+
+
+def read_entry(path):
+    group, entry = None, {}
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("["):
+                    group = line
+                    continue
+                if group != "[Desktop Entry]" or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                entry[k.strip()] = v.strip()
+    except OSError:
+        return None
+    return entry
+
+
+def localized(entry, key, ls):
+    for l in ls:
+        v = entry.get(f"{key}[{l}]")
+        if v:
+            return v
+    return entry.get(key, "")
+
+
+def excluded():
+    """lo que los menús de applications-merged sacan del todo: está en algún <Exclude> y en ningún <Include> (los
+    menús también usan <Exclude> para pasar un programa de una categoría a otra: el de DJOS lleva Richie DJ a "DJ")"""
+    out, kept = set(), set()
+    for d in config_dirs():
+        for f in glob.glob(os.path.join(d, "menus", "applications-merged", "*.menu")):
+            try:
+                root = ET.parse(f).getroot()
+            except (ET.ParseError, OSError):
+                continue
+            for tag, dest in (("Exclude", out), ("Include", kept)):
+                for block in root.iter(tag):
+                    for fn in block.iter("Filename"):
+                        if fn.text:
+                            dest.add(fn.text.strip())
+    return out - kept
+
+
+def tryexec_ok(v):
+    if not v:
+        return True
+    return os.path.isabs(v) and os.access(v, os.X_OK) or shutil.which(v) is not None
+
+
+def main():
+    ls = langs()
+    skip = excluded()
+    seen, apps = set(), []
+    for d in data_dirs():
+        base = os.path.join(d, "applications")
+        for path in sorted(glob.glob(os.path.join(base, "**", "*.desktop"), recursive=True)):
+            # el id de un .desktop en una subcarpeta lleva la carpeta con "-" (especificación de menús)
+            did = os.path.relpath(path, base).replace(os.sep, "-")
+            if did in seen:
+                continue
+            seen.add(did)
+            e = read_entry(path)
+            if not e or e.get("Type") != "Application":
+                continue
+            if e.get("NoDisplay", "").lower() == "true" or e.get("Hidden", "").lower() == "true":
+                continue
+            only = [x for x in e.get("OnlyShowIn", "").split(";") if x]
+            nots = [x for x in e.get("NotShowIn", "").split(";") if x]
+            if (only and "KDE" not in only) or "KDE" in nots:
+                continue
+            if did in skip or not tryexec_ok(e.get("TryExec", "")):
+                continue
+            name = localized(e, "Name", ls)
+            if not name:
+                continue
+            apps.append({
+                "id": did,
+                "name": name,
+                "generic": localized(e, "GenericName", ls),
+                "comment": localized(e, "Comment", ls),
+                "keywords": localized(e, "Keywords", ls),
+                "icon": e.get("Icon", "application-x-executable"),
+                "url": "applications:" + did,
+            })
+    apps.sort(key=lambda a: re.sub(r"\W+", "", a["name"].casefold()))
+    json.dump(apps, sys.stdout, ensure_ascii=False, separators=(",", ":"))
+
+
+if __name__ == "__main__":
+    main()

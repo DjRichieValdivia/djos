@@ -1,4 +1,4 @@
-<!-- DJOS: ícono de Richie DJ en el tema de DJOS (un vinilo con la etiqueta naranja); el de la app (hicolor) queda igual -->
+<!-- DJOS: ícono de Richie DJ en el tema de DJOS (un vinilo con la etiqueta azul); el de la app (hicolor) queda igual -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
     <radialGradient id="disc" cx="0.5" cy="0.5" r="0.5">
@@ -13,8 +13,8 @@
       <stop offset="0.72" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
     <linearGradient id="label" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffa057"/>
-      <stop offset="1" stop-color="#f26a0c"/>
+      <stop offset="0" stop-color="#5aaeff"/>
+      <stop offset="1" stop-color="#0a6ce8"/>
     </linearGradient>
   </defs>
   <circle cx="32" cy="32" r="30" fill="url(#disc)"/>
@@ -26,6 +26,6 @@
   </g>
   <circle cx="32" cy="32" r="30" fill="url(#shine)"/>
   <circle cx="32" cy="32" r="12.5" fill="url(#label)"/>
-  <circle cx="32" cy="32" r="12.5" fill="none" stroke="#ffb27a" stroke-opacity="0.5" stroke-width="0.8"/>
+  <circle cx="32" cy="32" r="12.5" fill="none" stroke="#9fd0ff" stroke-opacity="0.5" stroke-width="0.8"/>
   <circle cx="32" cy="32" r="2.4" fill="#0e1013"/>
 </svg>

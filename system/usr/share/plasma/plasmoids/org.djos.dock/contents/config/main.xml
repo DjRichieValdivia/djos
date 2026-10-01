@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DJOS Dock: lo que se guarda por dock (los programas fijos y el tamaño) -->
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0 http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+  <kcfgfile name=""/>
+  <group name="General">
+    <entry name="launchers" type="StringList">
+      <default></default>
+    </entry>
+    <entry name="iconSize" type="Int">
+      <default>38</default>
+      <min>24</min>
+      <max>96</max>
+    </entry>
+    <entry name="zoom" type="Double">
+      <default>1.6</default>
+      <min>1.0</min>
+      <max>2.5</max>
+    </entry>
+  </group>
+</kcfg>

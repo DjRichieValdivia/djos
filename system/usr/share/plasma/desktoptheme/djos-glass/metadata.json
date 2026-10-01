@@ -1,0 +1,12 @@
+{
+    "KPlugin": {
+        "Authors": [ { "Name": "DJOS" } ],
+        "Category": "",
+        "Description": "DJOS Glass: transparent panels (the dock draws its own glass) and rounded popups; the rest is Breeze",
+        "Id": "djos-glass",
+        "License": "GPL-2.0-or-later",
+        "Name": "DJOS Glass",
+        "Version": "1"
+    },
+    "X-Plasma-API": "5.0"
+}

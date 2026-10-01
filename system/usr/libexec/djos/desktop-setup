@@ -1,7 +1,8 @@
 #!/usr/bin/bash
 # DJOS: aspecto del escritorio de cada usuario. Lo corre djos-desktop.service (de usuario) en cada inicio de sesión:
-#   1. una sola vez por usuario y versión del diseño (V): tema DJOS Glass (V3, DJOS 2.3: colores, íconos, ventanas con
-#      el semáforo, pantalla de carga), barra de arriba, dock y fondo, favoritos del menú, pantalla de bloqueo, perfil
+#   1. una sola vez por usuario y versión del diseño (V): tema DJOS Glass (V3 en DJOS 2.3; V4 en 2.4: el dock de DJOS
+#      con la lupa, el Launchpad arriba a la izquierda, paneles transparentes y menús redondeados; colores, íconos,
+#      ventanas, pantalla de carga), barra de arriba, dock y fondo, favoritos del menú, pantalla de bloqueo, perfil
 #      de Konsole, avisos en pantalla completa. Si después el usuario cambia algo, se respeta (solo se vuelve a aplicar
 #      si sube V). El tema clásico (org.djos.desktop, V2) sigue en el selector de temas
 #   2. Richie DJ fijo en la barra cuando la app llega después (una vez; si el usuario lo saca, se respeta)
@@ -12,7 +13,7 @@
 #   6. display-setup: cada monitor nuevo a su frecuencia más alta
 # Para volver al escritorio de Fedora: plasma-apply-lookandfeel -a org.fedoraproject.fedora.desktop --resetLayout
 set -u
-V=3
+V=4
 state=${XDG_STATE_HOME:-$HOME/.local/state}/djos
 cfg=${XDG_CONFIG_HOME:-$HOME/.config}
 data=${XDG_DATA_HOME:-$HOME/.local/share}
@@ -100,6 +101,8 @@ apply_look() {
     # tema global: colores, íconos, estilo de ventanas y pantalla de carga (la barra va aparte)
     plasma-apply-lookandfeel -a org.djos.glass > /dev/null 2>&1
     plasma-apply-colorscheme DJOSGlass > /dev/null 2>&1
+    # tema de Plasma: paneles transparentes (el dock dibuja el suyo) y menús redondeados
+    plasma-apply-desktoptheme djos-glass > /dev/null 2>&1
     # ventanas con el semáforo: la decoración del tema y los botones de DJOS (una vez, con el diseño nuevo)
     kwin_deco_reset
     if [ -x /usr/libexec/plasma-changeicons ]; then
@@ -132,13 +135,15 @@ PY
     # orden de los favoritos en el menú nuevo (se ve desde el próximo inicio de sesión; Plasma guarda la barra nueva
     # en su archivo unos segundos después)
     sleep 8
-    local kick order
-    kick=$(awk -F'[][]' '/^\[Containments\]\[[0-9]+\]\[Applets\]\[[0-9]+\]$/ { id = $8 } /^plugin=org.kde.plasma.kickoff$/ && id { last = id } END { print last }' \
+    local kick order client
+    # el último menú de apps de la barra: el Launchpad (kickerdash, mismo código que kicker) o el menú de siempre
+    kick=$(awk -F'[][]' '/^\[Containments\]\[[0-9]+\]\[Applets\]\[[0-9]+\]$/ { id = $8 } /^plugin=org.kde.plasma.(kickoff|kicker|kickerdash)$/ && id { last = id; p = $0 } END { if (last) print last, p }' \
            "$cfg/plasma-org.kde.plasma.desktop-appletsrc" 2> /dev/null)
     if [ -n "$kick" ]; then
+        case "$kick" in *kickoff) client=org.kde.plasma.kickoff ;; *) client=org.kde.plasma.kicker ;; esac
         # shellcheck disable=SC2086
         order=$(printf '%s\n' $FAVORITES | paste -sd, -)
-        kwriteconfig6 --file kactivitymanagerd-statsrc --group "Favorites-org.kde.plasma.kickoff.favorites.instance-$kick-global" \
+        kwriteconfig6 --file kactivitymanagerd-statsrc --group "Favorites-$client.favorites.instance-${kick%% *}-global" \
             --key ordering "$order"
     fi
     # la bandeja nueva sin el clima (recién ahora la bandeja tiene su lista)
@@ -160,6 +165,10 @@ PY
     # sin ubicación automática ni la carga de la configuración de NVIDIA para X11 (en Wayland no hace nada)
     autostart_off geoclue-demo-agent.desktop
     autostart_off nvidia-settings-user.desktop always
+    # sin los recordatorios de calendario de KDE al iniciar: arrancan Akonadi entero (el motor de KMail/KOrganizer, con
+    # su base de datos MySQL y ~15 procesos, más de 1 GB de RAM) aunque nadie use correo ni agenda, y queda trabajando
+    # de fondo en pleno set. Si se abre KMail o KOrganizer, Akonadi arranca igual
+    autostart_off org.kde.kalendarac.desktop
     return 0
 }
 

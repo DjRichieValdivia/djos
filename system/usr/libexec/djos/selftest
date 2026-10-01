@@ -25,6 +25,35 @@ irq=$(ps -eLo rtprio=,comm= | awk '$1 >= 85 && $2 ~ /^irq\// { printf "%s (FIFO 
 [ -n "$irq" ] && pass "sound card interrupts at top priority: $irq" || bad "no sound card interrupt boosted (is the audio interface connected?)"
 pw=$(pw-metadata -n settings 2>/dev/null | grep -oE "clock\.(rate|quantum)' value:'[0-9]+" | sed "s/' value:'/=/" | tr '\n' ' ')
 echo "  [..]   PipeWire: $pw"
+# lo que hace "pop" en los parlantes: la placa que se cierra en silencio y se vuelve a abrir, o que cambia de frecuencia
+st=$(wpctl inspect @DEFAULT_AUDIO_SINK@ 2>/dev/null | sed -n 's/.*session.suspend-timeout-seconds = "\([0-9]*\)".*/\1/p')
+[ "$st" = 0 ] && pass "the sound card stays open (no pop when a sound starts)" \
+    || bad "the sound card closes when silent and pops when a sound starts (WirePlumber rule 52-djos-no-suspend missing?)"
+rates=$(pw-metadata -n settings 2>/dev/null | sed -n "s/.*key:'clock.allowed-rates' value:'\[\(.*\)\]'.*/\1/p" | grep -oE '[0-9]+' | wc -l)
+if [ "$rates" -le 1 ]; then pass "sample rate fixed (no pop when an app with another rate starts)"
+else echo "  [..]   sample rate follows what's playing: the card may pop when it switches (DJOS Center > Audio)"; fi
+[ "$(kreadconfig6 --file plasmaparc --group General --key AudioFeedback 2>/dev/null)" = false ] \
+    && pass "no test sound when the volume changes" \
+    || bad "Plasma plays a test sound on every volume change (System Settings > Sound > Play audio feedback)"
+# una webcam en el mismo controlador USB que la placa de audio le saca ancho de banda (cortes con la cámara prendida)
+for c in /proc/asound/card[0-9]*; do
+    [ -f "$c/usbbus" ] || continue
+    # la placa de sonido de la misma webcam (su micrófono) no cuenta
+    cdev=$(readlink -f "/sys/class/sound/${c##*/}/device/..")
+    grep -qx 0e "$cdev"/*:*/bInterfaceClass 2>/dev/null && continue
+    bus=$((10#$(cut -d/ -f1 < "$c/usbbus")))
+    ctrl=$(readlink -f "/sys/bus/usb/devices/usb$bus" | grep -oE '[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]' | tail -1)
+    [ -n "$ctrl" ] || continue
+    for i in /sys/bus/usb/devices/*:*; do
+        [ "$(cat "$i/bInterfaceClass" 2>/dev/null)" = 0e ] || continue   # video
+        d=$(readlink -f "$i/..")
+        [[ $d == *"$ctrl"* ]] || continue
+        n=${c##*card}
+        card_name=$(sed -n "s/^ *$n \[.*\]: .* - //p" /proc/asound/cards)
+        bad "$(cat "$d/product" 2>/dev/null || echo webcam) shares the USB controller with ${card_name:-the audio interface}: plug one of them into a port on another controller (e.g. a USB-C port)"
+        break 2
+    done
+done
 
 title "Graphics and displays"
 nv=$(/usr/libexec/djos/nvidia-setup --status 2>/dev/null)

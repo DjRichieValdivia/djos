@@ -1,0 +1,11 @@
+# DJOS Glass: la barra de arriba siempre transparente (sin "transparencia adaptable": no hay nada que oscurecer), y sin
+# el contraste ni el desenfoque que KWin pone detrás de los paneles: el panel del dock es más alto que el dock (lugar
+# para la lupa) y se vería un rectángulo oscuro alrededor. Los menús usan su versión casi opaca
+[AdaptiveTransparency]
+enabled=false
+
+[ContrastEffect]
+enabled=false
+
+[BlurBehindEffect]
+enabled=false

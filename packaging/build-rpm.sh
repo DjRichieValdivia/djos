@@ -190,8 +190,9 @@ if [ -f /etc/fedora-release ] && { [ -e /run/.containerenv ] || [ -e /.dockerenv
 elif command -v podman > /dev/null; then
     image=${DJOS_BUILD_IMAGE:-registry.fedoraproject.org/fedora:44}
     say "Contenedor $image"
-    # la caché de dnf queda en un volumen: la segunda vez no baja todo de nuevo
-    podman run --rm --security-opt label=disable \
+    # la caché de dnf queda en un volumen: la segunda vez no baja todo de nuevo. --log-driver=none: la salida se ve
+    # igual, pero no llena el registro del sistema (journalctl -p err) con miles de líneas de rpmbuild
+    podman run --rm --log-driver=none --security-opt label=disable \
         -v "$work:$work" -v djos-rpmbuild-dnf:/var/cache/libdnf5 \
         -e DJOS_DRAFT -e DJOS_SKIP_REPO_CHECKS \
         "$image" "${inner_cmd[@]}"

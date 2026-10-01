@@ -9,7 +9,7 @@ PageBase {
     title: "Audio"
     subtitle: "Your sound cards, and how DJOS keeps the audio free of dropouts."
 
-    property var audio: ({ cards: [], rate: 48000, quantum: 256, configuredRate: 48000, configuredQuantum: 256, irqThreads: [] })
+    property var audio: ({ cards: [], rate: 48000, quantum: 256, configuredRate: 48000, configuredQuantum: 256, followRate: false, irqThreads: [] })
     property string message: ""
     readonly property var rates: [44100, 48000, 88200, 96000]
     readonly property var quanta: [32, 64, 128, 256, 512, 1024]
@@ -19,6 +19,21 @@ PageBase {
     property bool ctlBusy: false
     function refresh() { audio = JSON.parse(djos.audio()); controllers = JSON.parse(djos.controllers()) }
     Timer { interval: 5000; running: true; repeat: true; onTriggered: page.controllers = JSON.parse(djos.controllers()) }
+    // lo que cada placa está usando ahora (cambia cuando un programa la abre o la cierra)
+    Timer {
+        interval: 2000; running: page.visible; repeat: true
+        onTriggered: { const a = page.audio; a.cards = JSON.parse(djos.cards()); page.audio = a }
+    }
+    function liveText(live) {
+        const parts = []
+        for (const kind of ["playback", "capture"]) {
+            const l = live ? live[kind] : null
+            if (!l) continue
+            parts.push((kind === "playback" ? "Output" : "Input") + " now: " + (l.rate / 1000) + " kHz, " + l.bits + "-bit, "
+                       + l.channels + " ch, used by " + l.owner)
+        }
+        return parts.length > 0 ? parts.join("   ·   ") : "Not in use right now"
+    }
     Connections {
         target: djos
         function onJobDone(tag, code, output) {
@@ -32,6 +47,7 @@ PageBase {
         refresh()
         rateBox.currentIndex = Math.max(0, rates.indexOf(audio.configuredRate))
         bufBox.currentIndex = Math.max(0, quanta.indexOf(audio.configuredQuantum))
+        followBox.checked = audio.followRate === true
     }
 
     Card {
@@ -42,9 +58,9 @@ PageBase {
                 required property var modelData
                 iconName: modelData.usb ? "audio-card" : modelData.hdmi ? "video-display" : "audio-speakers"
                 title: modelData.name
-                subtitle: modelData.usb ? "USB audio interface or DJ controller: gets top interrupt priority"
+                subtitle: (modelData.usb ? "USB audio interface or DJ controller: gets top interrupt priority"
                         : modelData.hdmi ? "Monitor or TV audio (HDMI / DisplayPort)"
-                        : "Motherboard audio"
+                        : "Motherboard audio") + "\n" + page.liveText(modelData.live)
             }
         }
         QQC2.Label {
@@ -106,7 +122,7 @@ PageBase {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             opacity: 0.75
-            text: "Used by browsers, DAWs and most apps. Richie DJ in “ALSA Direct” mode talks to your card directly with its own buffer, so these settings don’t affect your sets."
+            text: "Used by browsers, DAWs and most apps: your card runs at this rate while they play (see “now” above). Richie DJ in “ALSA Direct” mode talks to your card directly with its own rate and buffer, so these settings don’t affect your sets."
         }
         GridLayout {
             columns: 2
@@ -132,20 +148,34 @@ PageBase {
             font.pointSize: Kirigami.Theme.smallFont.pointSize
             text: "Smaller buffer means less delay but more work for the processor. 256 is safe for everything; use 64 or 128 to play instruments live through a DAW."
         }
+        QQC2.CheckBox {
+            id: followBox
+            text: "Follow the sample rate of what's playing (bit-perfect)"
+        }
+        QQC2.Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            opacity: 0.65
+            font.pointSize: Kirigami.Theme.smallFont.pointSize
+            text: followBox.checked
+                  ? "The card switches to each app's rate (a 44.1 kHz track plays untouched). Many cards make a “pop” every time it switches."
+                  : "Recommended: the card always runs at the rate above and everything else is converted with the best quality, so it never “pops” when an app starts."
+        }
         RowLayout {
             QQC2.Button {
                 icon.name: "dialog-ok-apply"
                 text: "Apply"
                 onClicked: {
-                    djos.setAudio(page.rates[rateBox.currentIndex], page.quanta[bufBox.currentIndex])
+                    djos.setAudio(page.rates[rateBox.currentIndex], page.quanta[bufBox.currentIndex], followBox.checked)
                     page.refresh()
-                    page.message = "Applied: " + (page.rates[rateBox.currentIndex] / 1000) + " kHz, " + page.quanta[bufBox.currentIndex] + " samples."
+                    page.message = "Applied: " + (page.rates[rateBox.currentIndex] / 1000) + " kHz" + (followBox.checked ? " (follows what's playing)" : "")
+                                   + ", " + page.quanta[bufBox.currentIndex] + " samples."
                 }
             }
             QQC2.Button {
                 text: "DJOS default"
                 flat: true
-                onClicked: { rateBox.currentIndex = 1; bufBox.currentIndex = 3 }
+                onClicked: { rateBox.currentIndex = 1; bufBox.currentIndex = 3; followBox.checked = false }
             }
         }
         QQC2.Label { visible: page.message.length > 0; text: page.message; color: Kirigami.Theme.positiveTextColor }
@@ -166,6 +196,11 @@ PageBase {
             ok: page.audio.irqThreads !== undefined && page.audio.irqThreads.length > 0
             text: ok ? "Sound card interrupts run at top priority" : "Connect your audio interface or controller"
             detail: ok ? page.audio.irqThreads.join(",  ") : "DJOS gives its USB port top priority as soon as you plug it in."
+        }
+        Check {
+            ok: !page.audio.usbShared || page.audio.usbShared.length === 0
+            text: ok ? "Your audio interface has its USB controller to itself" : "A webcam shares the USB controller with your audio interface"
+            detail: ok ? "" : page.audio.usbShared.join(", ") + ": plug one of them into a port on another controller (for example a USB-C port), so the camera can't cause dropouts."
         }
         Check {
             ok: (page.audio.tuned || "").indexOf("djos") === 0

@@ -12,9 +12,12 @@ RPM Fusion keep the system itself up to date. If you remove the package, you get
   for low latency, and no power saving on sound cards.
 - **NVIDIA**: installs the driver from RPM Fusion and sets up the Secure Boot key for you. You see one blue
   confirmation screen at the next restart.
-- **DJOS look**: the **DJOS Glass** theme: a top bar with the menu of the active app, a floating dock, dark glass
-  windows with colored round buttons on the right (Windows order), smooth and fast animations (Mac-style interface, nothing from Apple inside).
-  Papirus Dark icons with orange folders, the Inter font, wallpapers, and DJOS boot, login and lock screens. The
+- **DJOS look**: the **DJOS Glass** theme: a transparent top bar with the DJOS Launchpad (all your apps, search,
+  arrange and hide them, add them to the dock) and the menu of the active app, the DJOS dock with the Mac zoom effect
+  (drag apps in, out or around; it hides when a window touches it, so you keep the whole screen), dark glass windows
+  with colored round buttons on the right (Windows order), rounded menus and matching app icons in macOS blue,
+  smooth and fast animations (Mac-style interface, nothing from Apple inside).
+  Papirus Dark icons, the Inter font, wallpapers, and DJOS boot, login and lock screens. The
   classic DJOS theme is still in the theme picker. Each monitor runs at its highest refresh rate.
 - **DJOS Center**: sound cards, sample rate and buffer, a real-time checklist, performance, updates, apps and
   plugins, **Which App?** (what to use for each job: cut a track, fix tags, record a set…) and music disks. It also

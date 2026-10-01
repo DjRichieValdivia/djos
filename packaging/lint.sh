@@ -38,7 +38,7 @@ fi
 if command -v shellcheck > /dev/null; then
     sc=(shellcheck)
 elif command -v podman > /dev/null; then
-    sc=(podman run --rm --security-opt label=disable -v "$repo:/mnt:ro" -w /mnt
+    sc=(podman run --rm --log-driver=none --security-opt label=disable -v "$repo:/mnt:ro" -w /mnt
         docker.io/koalaman/shellcheck-alpine:stable shellcheck)
 else
     echo "lint: falta shellcheck (y podman para usar su imagen)"
