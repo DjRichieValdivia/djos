@@ -21,6 +21,9 @@ own_dir() {
         usr/share/plasma/systemsettings|usr/share/plasma/systemsettings/externalmodules) return 0 ;;
         usr/share/plymouth/themes/djos|usr/share/plymouth/themes/djos/*) return 0 ;;
         usr/share/wallpapers/DJOS*) return 0 ;;
+        # la decoración de DJOS Glass: aurorae no trae /usr/share/aurorae/themes (sin dueño quedaba vacía al
+        # desinstalar; compartir la carpeta con otro paquete que la traiga está bien en rpm)
+        usr/share/aurorae|usr/share/aurorae/themes|usr/share/aurorae/themes/DJOS*) return 0 ;;
         usr/share/icons/Papirus-Dark-DJOS|usr/share/icons/Papirus-Dark-DJOS/*) return 0 ;;
         usr/share/doc/djos-optimizer) return 0 ;;
         # carpetas de retoques (drop-ins) de un servicio: ningún paquete de Fedora las trae, las dejamos limpias

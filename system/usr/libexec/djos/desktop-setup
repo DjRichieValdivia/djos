@@ -1,19 +1,20 @@
 #!/usr/bin/bash
 # DJOS: aspecto del escritorio de cada usuario. Lo corre djos-desktop.service (de usuario) en cada inicio de sesión:
-#   1. una sola vez por usuario y versión del diseño (V): tema DJOS (colores, íconos, ventanas, pantalla de carga),
-#      barra de tareas y fondo, favoritos del menú, pantalla de bloqueo, perfil de Konsole, avisos en pantalla
-#      completa. Si después el usuario cambia algo, se respeta (solo se vuelve a aplicar si sube V).
+#   1. una sola vez por usuario y versión del diseño (V): tema DJOS Glass (V3, DJOS 2.3: colores, íconos, ventanas con
+#      el semáforo, pantalla de carga), barra de arriba, dock y fondo, favoritos del menú, pantalla de bloqueo, perfil
+#      de Konsole, avisos en pantalla completa. Si después el usuario cambia algo, se respeta (solo se vuelve a aplicar
+#      si sube V). El tema clásico (org.djos.desktop, V2) sigue en el selector de temas
 #   2. Richie DJ fijo en la barra cuando la app llega después (una vez; si el usuario lo saca, se respeta)
 #   3. la barra en la pantalla principal (una vez; hasta DJOS 2.2.0 podía quedar en la secundaria)
 #   4. retoques de la barra (una vez cada uno): la bandeja sin el clima (2.2.2) y el menú con la grilla de apps (2.2.4)
 #   5. display-setup: cada monitor nuevo a su frecuencia más alta
 # Para volver al escritorio de Fedora: plasma-apply-lookandfeel -a org.fedoraproject.fedora.desktop --resetLayout
 set -u
-V=2
+V=3
 state=${XDG_STATE_HOME:-$HOME/.local/state}/djos
 cfg=${XDG_CONFIG_HOME:-$HOME/.config}
 data=${XDG_DATA_HOME:-$HOME/.local/share}
-lnf=/usr/share/plasma/look-and-feel/org.djos.desktop
+lnf=/usr/share/plasma/look-and-feel/org.djos.glass
 layout=$lnf/contents/layouts/org.kde.plasma.desktop-layout.js
 rdj_desktop=/usr/local/share/applications/richiedj.desktop
 marker=$state/desktop-v$V
@@ -52,8 +53,16 @@ autostart_off() {
 
 apply_look() {
     # tema global: colores, íconos, estilo de ventanas y pantalla de carga (la barra va aparte)
-    plasma-apply-lookandfeel -a org.djos.desktop > /dev/null 2>&1
-    plasma-apply-colorscheme DJOS > /dev/null 2>&1
+    plasma-apply-lookandfeel -a org.djos.glass > /dev/null 2>&1
+    plasma-apply-colorscheme DJOSGlass > /dev/null 2>&1
+    # ventanas: el tema deja la decoración en ~/.config/kdedefaults y los botones vienen de /etc/xdg/kwinrc (a la
+    # izquierda; el tema no los puede cambiar). Lo que el usuario tuviera elegido en su kwinrc taparía las dos cosas
+    # (y el selector de temas no podría volver a cambiar la decoración): se saca una vez, con el diseño nuevo
+    local k
+    for k in library theme ButtonsOnLeft ButtonsOnRight; do
+        kwriteconfig6 --file kwinrc --group org.kde.kdecoration2 --key "$k" --delete
+    done
+    busctl --user call org.kde.KWin /KWin org.kde.KWin reconfigure > /dev/null 2>&1
     if [ -x /usr/libexec/plasma-changeicons ]; then
         /usr/libexec/plasma-changeicons Papirus-Dark-DJOS > /dev/null 2>&1
     else
@@ -75,7 +84,7 @@ if os.path.exists(db):
     c.commit()
 PY
 
-    # barra de tareas y fondo (el diseño del tema DJOS)
+    # barra de arriba, dock y fondo (el diseño del tema DJOS Glass)
     plasma_script "$layout" || return 1
     # la barra nueva ya trae el ícono de actualizaciones, y Richie DJ si ya estaba instalado
     [ -e "$rdj_desktop" ] && touch "$state/richiedj-pinned"
@@ -93,13 +102,15 @@ PY
         kwriteconfig6 --file kactivitymanagerd-statsrc --group "Favorites-org.kde.plasma.kickoff.favorites.instance-$kick-global" \
             --key ordering "$order"
     fi
+    # la bandeja nueva sin el clima (recién ahora la bandeja tiene su lista)
+    plasma_script /usr/share/djos/panel-tweaks.js
 
-    # pantalla de bloqueo con el fondo de DJOS
+    # pantalla de bloqueo con el fondo de DJOS Glass
     kwriteconfig6 --file kscreenlockerrc --group Greeter --key WallpaperPlugin org.kde.image
     kwriteconfig6 --file kscreenlockerrc --group Greeter --group Wallpaper --group org.kde.image --group General \
-        --key Image "file:///usr/share/wallpapers/DJOS-Lock/"
+        --key Image "file:///usr/share/wallpapers/DJOS-Glass/"
     kwriteconfig6 --file kscreenlockerrc --group Greeter --group Wallpaper --group org.kde.image --group General \
-        --key PreviewImage "file:///usr/share/wallpapers/DJOS-Lock/"
+        --key PreviewImage "file:///usr/share/wallpapers/DJOS-Glass/"
 
     # Konsole con el perfil DJOS (el konsolerc del sistema es del paquete de Konsole: va por usuario)
     kwriteconfig6 --file konsolerc --group "Desktop Entry" --key DefaultProfile DJOS.profile
@@ -153,7 +164,8 @@ if [ ! -e "$marker" ] || [ ! -e "$panel_primary" ] || [ ! -e "$panel_tweaks" ] |
    { [ ! -e "$state/richiedj-pinned" ] && [ -e "$rdj_desktop" ]; }; then
     if plasma_ready; then
         if [ ! -e "$marker" ]; then
-            apply_look && touch "$marker" && touch "$panel_primary"   # el diseño nuevo ya la pone en la principal
+            # el diseño nuevo ya pone las barras en la principal, sin el clima y con su propio ícono de menú
+            apply_look && touch "$marker" "$panel_primary" "$panel_tweaks" "$menu_icon"
         fi
         if [ -e "$marker" ] && [ ! -e "$panel_primary" ]; then
             plasma_script /usr/share/djos/panel-to-primary.js && touch "$panel_primary"

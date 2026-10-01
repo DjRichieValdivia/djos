@@ -88,10 +88,18 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
 - Don't edit files owned by other packages (check with `rpm -qf <file>`): use drop-ins or `/etc` overrides.
 
 ## Look and feel
-- Global theme `org.djos.desktop` (colors `DJOS`, icons `Papirus-Dark-DJOS` with orange folders, fonts Inter /
-  JetBrains Mono, wallpapers `/usr/share/wallpapers/DJOS*`, splash, Plymouth theme `djos`). `djos-desktop.service`
-  (user) applies the look once per user and design version (`~/.local/state/djos/`) and sets each monitor to its
-  highest refresh rate (`display-setup`). Back to Fedora's desktop:
+- Global theme `org.djos.glass` "DJOS Glass" (the default since 2.3: Mac-style interface only, no Apple assets): top
+  bar (DJOS menu, the active app's menu `org.kde.plasma.appmenu`, tray, clock) and a floating centered dock
+  (Richie DJ first, Launchpad `kickerdash`, trash); colors `DJOSGlass`; window decoration Aurorae v2
+  `__aurorae__svg__DJOSGlass` (`/usr/share/aurorae/themes/DJOSGlass`, traffic lights on the left: `ButtonsOnLeft=XIA`
+  in `/etc/xdg/kwinrc`, which is global for every theme); magic lamp minimize. The classic `org.djos.desktop` stays
+  in the theme picker. Icons `Papirus-Dark-DJOS` (orange folders), fonts Inter / JetBrains Mono, wallpapers
+  `/usr/share/wallpapers/DJOS*`, splash, Plymouth theme `djos`. Art: `branding/gen-glass.py` (decoration, wallpaper,
+  previews) and `branding/gen-links.sh` (icon links). `djos-desktop.service` (user) applies the look once per user
+  and design version (`~/.local/state/djos/desktop-v3`) and sets each monitor to its highest refresh rate
+  (`display-setup`). Plasma 6 writes a global theme's values to `~/.config/kdedefaults/`: a key in the user's own
+  file (e.g. `library=` in `~/.config/kwinrc`) wins over it. Classic DJOS: `plasma-apply-lookandfeel -a
+  org.djos.desktop --resetLayout`; back to Fedora's desktop:
   `plasma-apply-lookandfeel -a org.fedoraproject.fedora.desktop --resetLayout`.
 - DJOS Center (`/usr/libexec/djos/center`, PySide6 + Kirigami QML in `/usr/share/djos/center`) is also listed in
   System Settings under the DJOS category.

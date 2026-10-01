@@ -1,18 +1,22 @@
-# DJOS: ventanas sin bordes gruesos, sin "sacudir el mouse para agrandarlo" y sin teclado en pantalla
-# (Fedora lo trae prendido en /usr/share/kde-settings/kde-profile/default/xdg/kwinrc; esto manda sobre eso)
+# DJOS: ventanas de DJOS Glass (la decoración Aurorae con el semáforo a la izquierda: cerrar, minimizar, maximizar),
+# sin bordes gruesos, minimizar con la "lámpara mágica", sin "sacudir el mouse para agrandarlo" y sin teclado en
+# pantalla (Fedora lo trae prendido en /usr/share/kde-settings/kde-profile/default/xdg/kwinrc; esto manda sobre eso).
+# Los botones van para todos los temas (KDE no deja que cada tema traiga los suyos)
 [org.kde.kdecoration2]
 BorderSize=None
 BorderSizeAuto=false
-ButtonsOnLeft=
-ButtonsOnRight=IAX
-library=org.kde.breeze
-theme=Breeze
+ButtonsOnLeft=XIA
+ButtonsOnRight=
+library=org.kde.kwin.aurorae.v2
+theme=__aurorae__svg__DJOSGlass
 
 [Windows]
 BorderlessMaximizedWindows=false
 
 [Plugins]
 shakecursorEnabled=false
+magiclampEnabled=true
+squashEnabled=false
 
 [Wayland]
 InputMethod=

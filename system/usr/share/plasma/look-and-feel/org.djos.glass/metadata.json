@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "DJOS"
+            }
+        ],
+        "Category": "",
+        "Description": "DJOS Glass: dark glass desktop with a top bar, a dock and traffic-light windows",
+        "Id": "org.djos.glass",
+        "License": "GPLv2+",
+        "Name": "DJOS Glass",
+        "Version": "1"
+    }
+}

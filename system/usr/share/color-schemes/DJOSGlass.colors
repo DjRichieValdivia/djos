@@ -1,32 +1,5 @@
-# DJOS: valores por defecto de KDE para todos los usuarios (colores de DJOS completos: las apps los leen de acá;
-# letras Inter y JetBrains Mono, íconos Papirus-Dark-DJOS, tema DJOS Glass). Lo que cada usuario cambia queda en su
-# ~/.config/kdeglobals y manda sobre esto. Los colores son los de /usr/share/color-schemes/DJOSGlass.colors: si
-# cambian allá, copiarlos acá.
-[General]
-ColorScheme=DJOSGlass
-font=Inter,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
-menuFont=Inter,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
-smallestReadableFont=Inter,8,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
-toolBarFont=Inter,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
-fixed=JetBrains Mono,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
-
-[Icons]
-Theme=Papirus-Dark-DJOS
-
-[KDE]
-LookAndFeelPackage=org.djos.glass
-widgetStyle=Breeze
-AnimationDurationFactor=0.5
-contrast=4
-
-[WM]
-activeFont=Inter,10,-1,5,600,0,0,0,0,0,0,0,0,0,0,1
-activeBackground=54,54,56
-activeBlend=229,229,231
-activeForeground=229,229,231
-inactiveBackground=44,44,46
-inactiveBlend=140,140,145
-inactiveForeground=140,140,145
+# DJOS Glass: los grises de macOS en modo oscuro (ventanas, listas, barras de título) con el naranja de DJOS
+# como acento (macOS también lo ofrece) y los colores de sistema de Apple para links, errores y avisos.
 
 [ColorEffects:Disabled]
 Color=56,56,56
@@ -160,26 +133,18 @@ ForegroundNormal=229,229,231
 ForegroundPositive=50,215,75
 ForegroundVisited=191,90,242
 
-# Configuración: fuera las secciones que en una PC de DJ / estudio no sirven. "Actualizaciones de software"
-# (kcm_updates) queda: en Fedora común es donde se configuran las actualizaciones.
-[KDE Control Module Restrictions]
-kcm_gamecontroller=false
-kcm_kaccounts=false
-kcm_krdpserver=false
-kcm_feedback=false
-kcm_tablet=false
-kcm_touchscreen=false
-kcm_kwintouchscreen=false
-kcm_virtualkeyboard=false
-kcm_plasmakeyboard=false
-kcm_cellular_network=false
-kcm_mobile_hotspot=false
-kcm_mobile_power=false
-kcm_mobile_wifi=false
-kcm_mobile_wired=false
-kcm_kamera=false
-kcm_activities=false
-kcm_baloofile=false
-kcm_webshortcuts=false
-kcmspellchecking=false
-kcm_fcitx5=false
+[General]
+ColorScheme=DJOSGlass
+Name=DJOS Glass
+shadeSortColumn=true
+
+[KDE]
+contrast=4
+
+[WM]
+activeBackground=54,54,56
+activeBlend=229,229,231
+activeForeground=229,229,231
+inactiveBackground=44,44,46
+inactiveBlend=140,140,145
+inactiveForeground=140,140,145

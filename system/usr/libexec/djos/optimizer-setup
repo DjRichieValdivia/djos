@@ -711,14 +711,14 @@ undo_images() {
 # --- escritorio: con el paquete se van el tema DJOS, el ícono del menú y el widget de actualizaciones, y la barra de
 #     DJOS queda con íconos que faltan. Cada usuario que tenía el escritorio de DJOS recibe un autoarranque de una sola
 #     vez, suyo (lo escribe él, 0644; no es del paquete): en su próximo inicio de sesión de Plasma pone el escritorio
-#     de Fedora SOLO si el de DJOS sigue puesto (tema org.djos.desktop en kdeglobals o, sin tema elegido, la barra de
-#     DJOS) y DJOS no se volvió a instalar, y se borra. Si el usuario no vuelve a entrar, queda ahí sin hacer nada.
+#     de Fedora SOLO si el de DJOS sigue puesto (tema org.djos.glass u org.djos.desktop en kdeglobals o, sin tema
+#     elegido, la barra de DJOS) y DJOS no se volvió a instalar, y se borra. Si el usuario no vuelve a entrar, queda ahí sin hacer nada.
 RESTORE='djos-restore-desktop.desktop'
-djos_panel() { grep -qsx -e plugin=org.djos.updates -e icon=djos "$1/.config/plasma-org.kde.plasma.desktop-appletsrc"; }
+djos_panel() { grep -qsx -e plugin=org.djos.updates -e icon=djos -e icon=djos-menu -e icon=djos-start "$1/.config/plasma-org.kde.plasma.desktop-appletsrc"; }
 restore_entry() {   # restore_entry <carpeta de inicio>: el .desktop, rutas ya escritas (adentro sin $, comillas ni \)
     local c=$1/.config lnf=/usr/share/plasma/look-and-feel self djos apply
     self=$c/autostart/$RESTORE
-    djos="grep -qsx LookAndFeelPackage=org.djos.desktop $c/kdeglobals || { ! grep -qs ^LookAndFeelPackage= $c/kdeglobals && grep -qsx -e plugin=org.djos.updates -e icon=djos $c/plasma-org.kde.plasma.desktop-appletsrc; }"
+    djos="grep -qsx -e LookAndFeelPackage=org.djos.glass -e LookAndFeelPackage=org.djos.desktop $c/kdeglobals || { ! grep -qs ^LookAndFeelPackage= $c/kdeglobals && grep -qsx -e plugin=org.djos.updates -e icon=djos -e icon=djos-menu -e icon=djos-start $c/plasma-org.kde.plasma.desktop-appletsrc; }"
     apply="plasma-apply-lookandfeel -a org.fedoraproject.fedora.desktop --resetLayout || plasma-apply-lookandfeel -a org.kde.breeze.desktop --resetLayout"
     cat << EOF
 [Desktop Entry]

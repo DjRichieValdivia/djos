@@ -1,0 +1,16 @@
+<!-- DJOS Glass: el logo de DJOS en un color (el del texto), para el menú de la barra de arriba -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <style id="current-color-scheme" type="text/css">.ColorScheme-Text { color:#dfdfdf; }</style>
+  <g class="ColorScheme-Text" style="color:#dfdfdf">
+  <circle cx="128" cy="128" r="100" fill="none" stroke="currentColor" stroke-width="18"
+          stroke-linecap="round" stroke-dasharray="542 86.3" transform="rotate(-66.9 128 128)"/>
+  <circle cx="128" cy="28" r="11" fill="currentColor"/>
+  <g stroke="currentColor" stroke-width="16" stroke-linecap="round">
+    <line x1="80"  y1="112" x2="80"  y2="144"/>
+    <line x1="104" y1="88"  x2="104" y2="168"/>
+    <line x1="128" y1="66"  x2="128" y2="190"/>
+    <line x1="152" y1="94"  x2="152" y2="162"/>
+    <line x1="176" y1="108" x2="176" y2="148"/>
+  </g>
+  </g>
+</svg>

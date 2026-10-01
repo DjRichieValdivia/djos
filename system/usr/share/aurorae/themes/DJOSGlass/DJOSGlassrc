@@ -1,0 +1,38 @@
+# DJOS Glass: decoración Aurorae (la versión 2 de KWin la dibuja en C++, sin QML). Las medidas tienen que coincidir
+# con branding/gen-glass.py (sombra 18/38/30/30, esquinas de 10, barra de 28): el semáforo de 12 px va en botones de
+# 16, con 20 px entre centros y el primero a 14 px del borde, como en macOS. Los botones se ponen a la izquierda en
+# kwinrc (ButtonsOnLeft=XIA: cerrar, minimizar, maximizar).
+[General]
+ActiveTextColor=223,223,225
+InactiveTextColor=130,130,135
+TitleAlignment=Center
+TitleVerticalAlignment=Center
+Animation=0
+ButtonGroupHover=true
+DecorationPosition=0
+
+[Layout]
+BorderLeft=1
+BorderRight=1
+BorderBottom=1
+TitleEdgeTop=6
+TitleEdgeBottom=6
+TitleEdgeLeft=6
+TitleEdgeRight=6
+TitleEdgeTopMaximized=6
+TitleEdgeBottomMaximized=6
+TitleEdgeLeftMaximized=6
+TitleEdgeRightMaximized=6
+TitleBorderLeft=8
+TitleBorderRight=8
+TitleHeight=16
+ButtonWidth=16
+ButtonHeight=16
+ButtonSpacing=4
+ButtonMarginTop=0
+ButtonMarginTopMaximized=0
+ExplicitButtonSpacer=10
+PaddingTop=18
+PaddingBottom=38
+PaddingLeft=30
+PaddingRight=30

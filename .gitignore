@@ -12,3 +12,5 @@ out/
 auth.json
 # salida de packaging/build-rpm.sh
 dist/
+# lo que deja Python al revisar los generadores
+__pycache__/

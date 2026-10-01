@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DJOS Glass: botón "close" del semáforo (lo genera branding/gen-glass.py: no editar a mano) -->
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="16" viewBox="0 0 160 16">
+<g transform="translate(0 0)"><g id="active-center"><rect x="0" y="0" width="16" height="16" fill="none"/><circle cx="8" cy="8" r="5.75" fill="#ff5f57" stroke="#e2463f" stroke-width="0.5"/></g></g>
+<g transform="translate(20 0)"><g id="hover-center"><rect x="0" y="0" width="16" height="16" fill="none"/><circle cx="8" cy="8" r="5.75" fill="#ff5f57" stroke="#e2463f" stroke-width="0.5"/><path d="M5.4 5.4 L10.6 10.6 M10.6 5.4 L5.4 10.6" stroke="#4d0000" stroke-width="1.3" stroke-linecap="round" fill="none"/></g></g>
+<g transform="translate(40 0)"><g id="pressed-center"><rect x="0" y="0" width="16" height="16" fill="none"/><circle cx="8" cy="8" r="5.75" fill="#bf4942" stroke="#a63a34" stroke-width="0.5"/><path d="M5.4 5.4 L10.6 10.6 M10.6 5.4 L5.4 10.6" stroke="#4d0000" stroke-width="1.3" stroke-linecap="round" fill="none"/></g></g>
+<g transform="translate(60 0)"><g id="inactive-center"><rect x="0" y="0" width="16" height="16" fill="none"/><circle cx="8" cy="8" r="5.75" fill="#4b4b4e" stroke="#3d3d40" stroke-width="0.5"/></g></g>
+<g transform="translate(80 0)"><g id="hover-inactive-center"><rect x="0" y="0" width="16" height="16" fill="none"/><circle cx="8" cy="8" r="5.75" fill="#ff5f57" stroke="#e2463f" stroke-width="0.5"/><path d="M5.4 5.4 L10.6 10.6 M10.6 5.4 L5.4 10.6" stroke="#4d0000" stroke-width="1.3" stroke-linecap="round" fill="none"/></g></g>
+<g transform="translate(100 0)"><g id="pressed-inactive-center"><rect x="0" y="0" width="16" height="16" fill="none"/><circle cx="8" cy="8" r="5.75" fill="#bf4942" stroke="#a63a34" stroke-width="0.5"/><path d="M5.4 5.4 L10.6 10.6 M10.6 5.4 L5.4 10.6" stroke="#4d0000" stroke-width="1.3" stroke-linecap="round" fill="none"/></g></g>
+<g transform="translate(120 0)"><g id="deactivated-center"><rect x="0" y="0" width="16" height="16" fill="none"/><circle cx="8" cy="8" r="5.75" fill="#3a3a3d" stroke="#333336" stroke-width="0.5"/></g></g>
+<g transform="translate(140 0)"><g id="deactivated-inactive-center"><rect x="0" y="0" width="16" height="16" fill="none"/><circle cx="8" cy="8" r="5.75" fill="#3a3a3d" stroke="#333336" stroke-width="0.5"/></g></g>
+</svg>

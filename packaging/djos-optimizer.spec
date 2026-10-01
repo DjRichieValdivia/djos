@@ -66,6 +66,10 @@ Requires:       plymouth-plugin-two-step
 Requires:       plymouth-theme-spinner
 Requires:       papirus-icon-theme
 Requires:       papirus-icon-theme-dark
+# DJOS Glass: la decoración de ventanas (el semáforo) es un tema Aurorae; el Launchpad del dock es de
+# kdeplasma-addons (sin él, el dock queda sin ese botón)
+Requires:       aurorae
+Recommends:     kdeplasma-addons
 # optimizer-setup corre en %%post, %%preun y %%posttrans: sus herramientas tienen que estar instaladas antes
 # y no irse antes que nosotros al desinstalar
 Requires(pre):  coreutils

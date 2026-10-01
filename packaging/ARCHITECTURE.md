@@ -158,11 +158,14 @@ repo (a pre-push hook blocks personal data). Tokens are never printed; they only
 
 ## Look (per-machine files + per-user setup)
 
-Own files only (never modify files owned by other packages): look-and-feel `org.djos.desktop`, `DJOS.colors`,
+Own files only (never modify files owned by other packages): look-and-feel `org.djos.glass` (DJOS Glass, the
+default since 2.3: top bar with the global menu + floating dock, `DJOSGlass.colors`, Aurorae v2 decoration
+`/usr/share/aurorae/themes/DJOSGlass` with traffic lights; the art comes from `branding/gen-glass.py`) and the
+classic `org.djos.desktop` + `DJOS.colors`,
 own icon theme `Papirus-Dark-DJOS` (a complete symlink mirror of Papirus-Dark with orange folders, built by
 `branding/gen-links.sh`; it must stay complete because KIconLoader shortens a name inside each theme before trying
 its parents, so a folders-only theme turned `network-*` tray icons into the `network` folder), Inter/JetBrains Mono,
-wallpapers `DJOS` and `DJOS-Lock`, splash, plymouth theme `djos`, Konsole profile, `/etc/xdg/*rc` defaults (copied
+wallpapers `DJOS`, `DJOS-Glass` and `DJOS-Lock`, splash, plymouth theme `djos`, Konsole profile, `/etc/xdg/*rc` defaults (copied
 from `/usr/share/djos/xdg`, see the table above; the other `/etc` files have DJOS-only names and are
 `%config(noreplace)`), KIOSK restrictions (NOT `kcm_updates` — on stock Fedora that page is the update UI), app menu
 hiding and the DJ-first menu (DJ, Produce, Edit and Tag, Record and Stream first, `/usr/share/desktop-directories/

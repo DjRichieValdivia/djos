@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DJOS Glass: botón "minimize" del semáforo (lo genera branding/gen-glass.py: no editar a mano) -->
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="16" viewBox="0 0 160 16">
+<g transform="translate(0 0)"><g id="active-center"><rect x="0" y="0" width="16" height="16" fill="none"/><circle cx="8" cy="8" r="5.75" fill="#febc2e" stroke="#e1a116" stroke-width="0.5"/></g></g>
+<g transform="translate(20 0)"><g id="hover-center"><rect x="0" y="0" width="16" height="16" fill="none"/><circle cx="8" cy="8" r="5.75" fill="#febc2e" stroke="#e1a116" stroke-width="0.5"/><path d="M4.8 8 H11.2" stroke="#985700" stroke-width="1.4" stroke-linecap="round" fill="none"/></g></g>
+<g transform="translate(40 0)"><g id="pressed-center"><rect x="0" y="0" width="16" height="16" fill="none"/><circle cx="8" cy="8" r="5.75" fill="#bf8e22" stroke="#a67a12" stroke-width="0.5"/><path d="M4.8 8 H11.2" stroke="#985700" stroke-width="1.4" stroke-linecap="round" fill="none"/></g></g>
+<g transform="translate(60 0)"><g id="inactive-center"><rect x="0" y="0" width="16" height="16" fill="none"/><circle cx="8" cy="8" r="5.75" fill="#4b4b4e" stroke="#3d3d40" stroke-width="0.5"/></g></g>
+<g transform="translate(80 0)"><g id="hover-inactive-center"><rect x="0" y="0" width="16" height="16" fill="none"/><circle cx="8" cy="8" r="5.75" fill="#febc2e" stroke="#e1a116" stroke-width="0.5"/><path d="M4.8 8 H11.2" stroke="#985700" stroke-width="1.4" stroke-linecap="round" fill="none"/></g></g>
+<g transform="translate(100 0)"><g id="pressed-inactive-center"><rect x="0" y="0" width="16" height="16" fill="none"/><circle cx="8" cy="8" r="5.75" fill="#bf8e22" stroke="#a67a12" stroke-width="0.5"/><path d="M4.8 8 H11.2" stroke="#985700" stroke-width="1.4" stroke-linecap="round" fill="none"/></g></g>
+<g transform="translate(120 0)"><g id="deactivated-center"><rect x="0" y="0" width="16" height="16" fill="none"/><circle cx="8" cy="8" r="5.75" fill="#3a3a3d" stroke="#333336" stroke-width="0.5"/></g></g>
+<g transform="translate(140 0)"><g id="deactivated-inactive-center"><rect x="0" y="0" width="16" height="16" fill="none"/><circle cx="8" cy="8" r="5.75" fill="#3a3a3d" stroke="#333336" stroke-width="0.5"/></g></g>
+</svg>
