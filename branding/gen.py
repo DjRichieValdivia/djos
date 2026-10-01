@@ -85,9 +85,9 @@ def lockscreen(W, H):
     return im.filter(ImageFilter.GaussianBlur(radius=W // 220))
 
 
-def wordmark(height, color=(255, 255, 255, 255)):
+def wordmark(height, color=(255, 255, 255, 255), mark_svg="djos-mark.svg"):
     """Logo horizontal: marca + "DJOS" (transparente)."""
-    mark = svg_png(os.path.join(HERE, "djos-mark.svg"), height)
+    mark = svg_png(os.path.join(HERE, mark_svg), height)
     f = font("xbold", int(height * 0.62))
     tmp = ImageDraw.Draw(Image.new("RGBA", (10, 10)))
     spacing = int(height * 0.035)
@@ -107,6 +107,10 @@ def wordmark(height, color=(255, 255, 255, 255)):
     return out
 
 
+def plymouth_watermark(ply):
+    wordmark(88, (242, 242, 244, 255), "djos-mark-mono.svg").save(os.path.join(ply, "watermark.png"), optimize=True)
+
+
 def main():
     wp = os.path.join(SYS, "usr/share/wallpapers/DJOS/contents/images")
     lk = os.path.join(SYS, "usr/share/wallpapers/DJOS-Lock/contents/images")
@@ -122,9 +126,9 @@ def main():
     wordmark(128).save(os.path.join(share, "logo-small.png"), optimize=True)
     for s in (256, 512):
         svg_png(os.path.join(HERE, "djos-mark.svg"), s).save(os.path.join(share, f"mark-{s}.png"), optimize=True)
-    # pantalla de arranque (Plymouth): el logo con el nombre, al centro
+    # pantalla de arranque (Plymouth): el logo con el nombre, al centro, en blanco (como la de carga de DJOS Glass)
     ply = os.path.join(SYS, "usr/share/plymouth/themes/djos"); os.makedirs(ply, exist_ok=True)
-    wordmark(88).save(os.path.join(ply, "watermark.png"), optimize=True)
+    plymouth_watermark(ply)
 
     # vistas previas del tema (las muestra Configuración > Tema global)
     prev = os.path.join(SYS, "usr/share/plasma/look-and-feel/org.djos.desktop/contents/previews")

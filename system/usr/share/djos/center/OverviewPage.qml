@@ -10,11 +10,13 @@ PageBase {
     subtitle: (win.sys.name || "Fedora Linux") + (win.sys.version ? "  ·  DJOS Optimizer " + win.sys.version : "")
 
     property var audio: ({ cards: [], rate: 48000, quantum: 256 })
+    property var now: ({ outputs: [] })      // audio-now: lo que suena en cada placa, con la latencia de verdad
     property string profile: "performance"
     property bool playing: false
 
     function refresh() {
         audio = JSON.parse(djos.audio())
+        try { now = JSON.parse(djos.audioNow()) } catch (e) { now = { outputs: [] } }
         profile = djos.powerProfile()
         playing = djos.playing()
         win.refreshSystem()
@@ -23,8 +25,18 @@ PageBase {
     Component.onCompleted: refresh()
     Timer { interval: 5000; running: true; repeat: true; onTriggered: page.refresh() }
 
-    readonly property var mainCard: audio.cards && audio.cards.length > 0 ? audio.cards[0] : null
+    // la placa que importa: la que usa Richie DJ (ALSA Direct) o la principal, con lo que suena ahora; si ninguna está
+    // abierta, la primera placa con los valores de PipeWire
+    readonly property var mainOut: {
+        const o = now.outputs || []
+        return o.find(x => x.owner !== "pipewire") || o.find(x => x.main) || o[0] || null
+    }
+    readonly property var mainCard: {
+        const c = audio.cards || []
+        return (mainOut ? c.find(x => x.index === mainOut.index) : null) || c[0] || null
+    }
     readonly property real latencyMs: audio.quantum / audio.rate * 1000
+    function khz(r) { return (r % 1000 === 0 ? r / 1000 : (r / 1000).toFixed(1)) + " kHz" }
 
     GridLayout {
         Layout.fillWidth: true
@@ -33,16 +45,19 @@ PageBase {
         rowSpacing: Kirigami.Units.largeSpacing * 1.5
 
         Card {
+            Layout.fillHeight: true
             title: "Audio"
             StatusRow {
                 iconName: page.mainCard && page.mainCard.usb ? "audio-card" : "audio-speakers"
                 title: page.mainCard ? page.mainCard.name : "No sound card found"
-                subtitle: (page.audio.rate / 1000) + " kHz  ·  " + page.audio.quantum + " samples  ·  "
-                          + page.latencyMs.toFixed(1) + " ms"
+                subtitle: page.mainOut ? page.khz(page.mainOut.rate) + "  ·  " + page.mainOut.bits + "-bit  ·  " + page.mainOut.ms + " ms"
+                                         + (page.mainOut.owner === "pipewire" ? "" : "  ·  " + (/richie/i.test(page.mainOut.owner) ? "Richie DJ (ALSA Direct)" : page.mainOut.owner))
+                                       : page.khz(page.audio.rate) + "  ·  " + page.audio.quantum + " samples  ·  " + page.latencyMs.toFixed(1) + " ms"
                 QQC2.Button { text: "Open"; flat: true; onClicked: win.go("audio") }
             }
         }
         Card {
+            Layout.fillHeight: true
             title: "Performance"
             StatusRow {
                 iconName: "speedometer"
@@ -55,6 +70,7 @@ PageBase {
             }
         }
         Card {
+            Layout.fillHeight: true
             title: "Updates"
             StatusRow {
                 readonly property var u: win.updates
@@ -76,6 +92,7 @@ PageBase {
             }
         }
         Card {
+            Layout.fillHeight: true
             title: "Graphics"
             StatusRow {
                 iconName: "video-display"

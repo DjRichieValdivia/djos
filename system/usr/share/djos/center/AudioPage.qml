@@ -50,9 +50,17 @@ PageBase {
         scDirty = true
     }
     // lo que tarda en salir el sonido por esa placa con esa combinación (buffer + margen de PipeWire)
+    // sin frecuencia propia, la placa va a la del sistema si la acepta; si no (un monitor HDMI hasta 48 kHz), PipeWire
+    // le da otra: la que usa ahora, o la más alta que acepta
+    function systemRateOf(o) {
+        const r = o.rates || []
+        if (r.length === 0 || r.indexOf(sc.systemRate) >= 0) return sc.systemRate
+        if (o.live && o.live.playback && r.indexOf(o.live.playback.rate) >= 0) return o.live.playback.rate
+        return r[r.length - 1]
+    }
     function latency(o) {
         const c = choices[o.name] || {}
-        const rate = c.rate || sc.systemRate
+        const rate = c.rate || systemRateOf(o)
         const buf = c.buffer || sc.systemBuffer
         const hr = c.headroom >= 0 ? c.headroom : o.headroom
         // el margen de PipeWire se sabe recién cuando la placa se abre (en las USB suele ser 1024)
@@ -168,7 +176,7 @@ PageBase {
                     QQC2.Label { text: "Latency"; opacity: 0.65; font.pointSize: Kirigami.Theme.smallFont.pointSize }
                     QQC2.ComboBox {
                         readonly property var values: [0].concat(cardRow.modelData.rates)
-                        model: values.map(v => v === 0 ? "System (" + page.khz(page.sc.systemRate) + ")" : page.khz(v))
+                        model: values.map(v => v === 0 ? "System (" + page.khz(page.systemRateOf(cardRow.modelData)) + ")" : page.khz(v))
                         currentIndex: Math.max(0, values.indexOf(cardRow.ch.rate))
                         onActivated: index => page.choose(cardRow.modelData.name, "rate", values[index])
                         Layout.preferredWidth: Kirigami.Units.gridUnit * 9

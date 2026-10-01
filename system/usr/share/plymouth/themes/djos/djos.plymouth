@@ -1,6 +1,6 @@
 [Plymouth Theme]
 Name=DJOS
-Description=DJOS boot screen: logo on black with a small spinner
+Description=DJOS boot screen: white logo on black with a small spinner
 ModuleName=two-step
 
 [two-step]
@@ -17,10 +17,10 @@ WatermarkHorizontalAlignment=.5
 WatermarkVerticalAlignment=.46
 Transition=none
 TransitionDuration=0.0
-BackgroundStartColor=0x08090b
-BackgroundEndColor=0x08090b
-ProgressBarBackgroundColor=0x1e232b
-ProgressBarForegroundColor=0xff7a1a
+BackgroundStartColor=0x000000
+BackgroundEndColor=0x000000
+ProgressBarBackgroundColor=0x2a2a2c
+ProgressBarForegroundColor=0xf2f2f4
 DialogClearsFirmwareBackground=true
 MessageBelowAnimation=true
 

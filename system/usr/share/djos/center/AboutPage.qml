@@ -21,12 +21,22 @@ PageBase {
     ]
     readonly property string info: rows.map(r => r[0] + ": " + r[1]).join("\n")
 
-    Image {
-        source: "file:///usr/share/djos/logo.png"
-        sourceSize.height: Kirigami.Units.gridUnit * 4
-        fillMode: Image.PreserveAspectFit
-        Layout.preferredHeight: Kirigami.Units.gridUnit * 4
+    // el logo del tema de íconos (con DJOS Glass, en sus colores) y el nombre en el color del texto
+    RowLayout {
         Layout.topMargin: Kirigami.Units.largeSpacing
+        spacing: Kirigami.Units.gridUnit
+        Kirigami.Icon {
+            source: "djos"
+            implicitWidth: Kirigami.Units.gridUnit * 4
+            implicitHeight: implicitWidth
+        }
+        QQC2.Label {
+            text: "DJOS"
+            font.family: "Inter"
+            font.weight: Font.ExtraBold
+            font.pixelSize: Kirigami.Units.gridUnit * 2.6
+            font.letterSpacing: Kirigami.Units.gridUnit * 0.08
+        }
     }
     QQC2.Label {
         text: "DJOS turns Fedora KDE into a PC for DJs and music producers: real-time audio tuning, the DJOS look, DJOS Center, the Self-Test and Richie DJ. Fedora keeps the system itself up to date."

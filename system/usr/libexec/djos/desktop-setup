@@ -233,6 +233,16 @@ if [ -e "$marker" ] && [ ! -e "$state/gtk-buttons-v1" ]; then
     gtk_buttons && touch "$state/gtk-buttons-v1"
 fi
 
+# DJOS 2.5.1: DJOS Glass tiene su propia pantalla de carga (negra, logo blanco). Quien aplicó Glass antes quedó con la
+# naranja del clásico en kdedefaults (lo que escribe el tema global): se cambia ahí una vez, sin tocar una elegida a mano
+if [ -e "$marker" ] && [ ! -e "$state/splash-glass-v1" ]; then
+    if [ "$(kreadconfig6 --file kdeglobals --group KDE --key LookAndFeelPackage)" = org.djos.glass ] && \
+       [ "$(kreadconfig6 --file "$cfg/kdedefaults/ksplashrc" --group KSplash --key Theme)" = org.djos.desktop ]; then
+        kwriteconfig6 --file "$cfg/kdedefaults/ksplashrc" --group KSplash --key Theme org.djos.glass
+    fi
+    touch "$state/splash-glass-v1"
+fi
+
 # la barra de DJOS (hasta 2.2.0) se armaba en la pantalla del cursor: a la principal, una sola vez. Con un solo
 # monitor no hay nada que mover; si después el usuario la pasa a otra pantalla, se respeta
 panel_primary=$state/panel-primary-v1

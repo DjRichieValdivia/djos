@@ -35,7 +35,18 @@ PlasmoidItem {
     Sensors.Sensor { id: gpuPower; sensorId: "gpu/gpu0/power"; updateRateLimit: 3000; enabled: root.expanded }
 
     readonly property bool hasGpu: vramTotal.value > 0
-    property var audio: ({ set: false, outputs: [] })
+    property var audio: ({ set: false, outputs: [], richiedj: null })
+    // Richie DJ abierto (publica su estado): su salida, su latencia y sus cortes de audio
+    readonly property var rdj: audio.richiedj || null
+    // cortes "recientes": si el contador subió en el último minuto, en rojo
+    property int lastDrops: -1
+    property double dropAtMs: 0
+    onRdjChanged: {
+        if (!rdj) { lastDrops = -1; return }
+        if (lastDrops >= 0 && rdj.dropouts > lastDrops) dropAtMs = Date.now()
+        lastDrops = rdj.dropouts
+    }
+    readonly property bool recentDrops: rdj !== null && Date.now() - dropAtMs < 60000 && dropAtMs > 0
     // la salida que importa: la de Richie DJ (ALSA Direct) si tiene una, si no la principal (la salida por defecto)
     readonly property var mainOut: {
         const o = audio.outputs || []
@@ -69,8 +80,16 @@ PlasmoidItem {
     function khz(r) { return r ? (r % 1000 === 0 ? (r / 1000) : (r / 1000).toFixed(1)) + " kHz" : "" }
     function ownerName(o) { return o === "pipewire" ? "PipeWire" : o === "Richie DJ" || o === "richiedj" ? "Richie DJ (ALSA Direct)" : o }
     function audioLine() {
+        if (rdj && rdj.latencyMs !== undefined)
+            return "Richie DJ " + rdj.latencyMs + " ms · " + khz(rdj.rate) + " · " + rdj.device + " · dropouts " + rdj.dropouts
         const m = mainOut
         return m ? "Audio " + m.ms + " ms · " + khz(m.rate) + " · " + m.card : "Audio: no output open"
+    }
+    // lo que muestra el chip de audio: la latencia de Richie DJ si está abierto (la suya, con el limitador), si no la
+    // de la salida en uso
+    function audioChip() {
+        if (rdj && rdj.latencyMs !== undefined) return rdj.latencyMs + " ms · " + khz(rdj.rate)
+        return mainOut ? mainOut.ms + " ms · " + khz(mainOut.rate) : "—"
     }
     // de gris a amarillo y rojo cuando se acerca al límite
     function level(v, warn, bad) { return v >= bad ? Kirigami.Theme.negativeTextColor : v >= warn ? Kirigami.Theme.neutralTextColor : Kirigami.Theme.textColor }
@@ -143,7 +162,13 @@ PlasmoidItem {
             Chip {
                 visible: Plasmoid.configuration.showAudio
                 label: "AUDIO"
-                value: root.mainOut ? root.mainOut.ms + " ms · " + root.khz(root.mainOut.rate) : "—"
+                value: root.audioChip()
+            }
+            Chip {
+                visible: Plasmoid.configuration.showAudio && root.rdj !== null
+                label: "DROPS"
+                value: root.rdj ? String(root.rdj.dropouts) : "0"
+                valueColor: root.recentDrops ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
             }
             Chip {
                 visible: Plasmoid.configuration.showCpu
@@ -174,9 +199,12 @@ PlasmoidItem {
 
     // ---------------------------------------------------------------- el detalle
     fullRepresentation: PlasmaExtras.Representation {
+        id: rep
         Layout.minimumWidth: Kirigami.Units.gridUnit * 22
         Layout.preferredWidth: Kirigami.Units.gridUnit * 24
-        Layout.preferredHeight: details.implicitHeight + Kirigami.Units.largeSpacing * 2
+        // todo el contenido, con la cabecera (sin ella, los botones de abajo quedaban cortados)
+        Layout.minimumHeight: details.implicitHeight + Kirigami.Units.largeSpacing * 2 + (rep.header ? rep.header.implicitHeight : 0)
+        Layout.preferredHeight: Layout.minimumHeight
         header: PlasmaExtras.PlasmoidHeading {
             RowLayout {
                 anchors.fill: parent
@@ -195,6 +223,48 @@ PlasmoidItem {
             anchors.margins: Kirigami.Units.largeSpacing
             spacing: Kirigami.Units.largeSpacing
 
+            Kirigami.Heading { level: 5; text: "Richie DJ"; opacity: 0.7; visible: root.rdj !== null }
+            ColumnLayout {
+                visible: root.rdj !== null
+                spacing: 0
+                Layout.fillWidth: true
+                PlasmaComponents.Label {
+                    // el nombre de la placa (con el modo, si el nombre no lo dice ya)
+                    text: !root.rdj ? "" : !root.rdj.device ? "No sound card open"
+                          : root.rdj.device + (root.rdj.type && root.rdj.device.indexOf(root.rdj.type) < 0 ? " · " + root.rdj.type : "")
+                    font.weight: Font.DemiBold
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                }
+                PlasmaComponents.Label {
+                    visible: root.rdj !== null && !!root.rdj.device
+                    text: root.rdj && root.rdj.device ? root.rdj.latencyMs + " ms  ·  " + root.khz(root.rdj.rate) + "  ·  " + root.rdj.buffer + " samples" : ""
+                    opacity: 0.75
+                    font.features: { "tnum": 1 }
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                }
+                RowLayout {
+                    spacing: 0
+                    Layout.fillWidth: true
+                    // los cortes en rojo si hubo uno en el último minuto
+                    PlasmaComponents.Label {
+                        text: root.rdj ? "Dropouts " + root.rdj.dropouts : ""
+                        color: root.recentDrops ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
+                        opacity: root.recentDrops ? 1 : 0.75
+                        font.features: { "tnum": 1 }
+                    }
+                    PlasmaComponents.Label {
+                        text: !root.rdj ? "" : "  ·  audio load " + Math.round((root.rdj.cpu || 0) * 100) + "%"
+                                               + "  ·  " + root.rdj.playing + (root.rdj.playing === 1 ? " deck" : " decks") + " playing"
+                                               + (root.rdj.recording ? "  ·  ● recording" : "")
+                        opacity: 0.75
+                        font.features: { "tnum": 1 }
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                    }
+                }
+            }
             Kirigami.Heading { level: 5; text: "Audio outputs"; opacity: 0.7 }
             Repeater {
                 model: root.audio.outputs || []

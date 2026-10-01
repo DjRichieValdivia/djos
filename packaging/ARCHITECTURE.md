@@ -162,7 +162,8 @@ Own files only (never modify files owned by other packages): look-and-feel `org.
 default since 2.3, blue accent: transparent top bar with the DJOS Launchpad plasmoid `org.djos.launchpad` (app list
 from `/usr/libexec/djos/launchpad-apps`) and the global menu; the DJOS dock plasmoid `org.djos.dock` with
 magnification and drag and drop in a taller "dodge windows" panel; the DJOS Stats plasmoid `org.djos.stats` in the top
-bar (ksystemstats sensors + `/usr/libexec/djos/audio-now`); Plasma style `djos-glass`; `DJOSGlass.colors`; Aurorae v2
+bar (ksystemstats sensors + `/usr/libexec/djos/audio-now`, which also passes on the status Richie DJ 1.10+ writes to
+`$XDG_RUNTIME_DIR/richiedj-status.json`); its own splash (black, white logo); Plasma style `djos-glass`; `DJOSGlass.colors`; Aurorae v2
 decoration `/usr/share/aurorae/themes/DJOSGlass` with colored round buttons on the right, Windows order `IAX`; the
 art comes from `branding/gen-glass.py`) and the classic `org.djos.desktop` + `DJOS.colors`,
 own icon theme `Papirus-Dark-DJOS` (a complete symlink mirror of Papirus-Dark, folders in `FOLDER_COLOR` — blue,

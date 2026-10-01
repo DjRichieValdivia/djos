@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- DJOS Glass: plato/jog (anillo con marca de posición) + forma de onda -->
+  <defs>
+    <linearGradient id="o" gradientUnits="userSpaceOnUse" x1="28" y1="28" x2="228" y2="228">
+      <stop offset="0" stop-color="#3d9bff"/>
+      <stop offset="1" stop-color="#9b5cf6"/>
+    </linearGradient>
+  </defs>
+  <circle cx="128" cy="128" r="100" fill="none" stroke="url(#o)" stroke-width="18"
+          stroke-linecap="round" stroke-dasharray="542 86.3" transform="rotate(-66.9 128 128)"/>
+  <circle cx="128" cy="28" r="11" fill="#3d9bff"/>
+  <g stroke="url(#o)" stroke-width="16" stroke-linecap="round">
+    <line x1="80"  y1="112" x2="80"  y2="144"/>
+    <line x1="104" y1="88"  x2="104" y2="168"/>
+    <line x1="128" y1="66"  x2="128" y2="190"/>
+    <line x1="152" y1="94"  x2="152" y2="162"/>
+    <line x1="176" y1="108" x2="176" y2="148"/>
+  </g>
+</svg>

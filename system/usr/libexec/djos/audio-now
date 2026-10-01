@@ -6,6 +6,8 @@
 # PipeWire, es su "quantum" más el margen que PipeWire le deja a esa placa (api.alsa.headroom: en las USB suele ser
 # 1024 muestras) — el buffer de la placa de PipeWire es más grande, pero lo que suena va con ese retraso.
 # set = true mientras suena un set (Richie DJ tiene /dev/cpu_dma_latency abierto: lo mismo que mira gig-guard).
+# richiedj = lo que publica Richie DJ (1.10+) una vez por segundo mientras está abierto: su salida, latencia, cortes
+# de audio y la carga de su audio ($XDG_RUNTIME_DIR/richiedj-status.json; viejo de más de 5 s = cerrado o colgado).
 set -u
 shopt -s nullglob
 
@@ -58,7 +60,7 @@ for sub in /proc/asound/card[0-9]*/pcm*p/sub[0-9]*; do
     headroom=0 main=0
     if [ "$owner" = pipewire ]; then
         pw_settings
-        read -r headroom force_rate force_q main <<< "$(pw_node "$card")"
+        read -r headroom _rate force_q main <<< "$(pw_node "$card")"
         frames=${pw_quantum:-$period}
         [ "${force_q:-0}" -gt 0 ] 2> /dev/null && frames=$force_q
         frames=$(( frames + ${headroom:-0} ))
@@ -74,5 +76,12 @@ for p in $(fuser /dev/cpu_dma_latency 2> /dev/null); do
     [ "$(cat "/proc/$p/comm" 2> /dev/null)" = tuned ] || gig=true
 done
 
+rdj=null
+st=${XDG_RUNTIME_DIR:-/tmp}/richiedj-status.json
+if [ -n "$(find "$st" -newermt '-5 seconds' 2> /dev/null)" ]; then
+    rdj=$(jq -c 'select(type == "object")' "$st" 2> /dev/null)
+    [ -n "$rdj" ] || rdj=null
+fi
+
 IFS=,
-printf '{"set":%s,"outputs":[%s]}\n' "$gig" "${out[*]}"
+printf '{"set":%s,"outputs":[%s],"richiedj":%s}\n' "$gig" "${out[*]}" "$rdj"

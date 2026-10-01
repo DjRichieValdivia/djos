@@ -391,6 +391,18 @@ def app_icons():
     return out
 
 
+def glass_mark():
+    """el logo de DJOS ("djos": DJOS Center, About, menús) con los colores de DJOS Glass: del azul al violeta del fondo
+    de pantalla (el naranja queda en hicolor, para el tema clásico fuera de este set de íconos)"""
+    with open(os.path.join(HERE, "djos-mark.svg")) as f:
+        s = f.read()
+    s = s.replace("<!-- DJOS: ", "<!-- DJOS Glass: ")
+    s = s.replace('stop-color="#FFA24A"', 'stop-color="#3d9bff"').replace('stop-color="#FF5A0A"', 'stop-color="#9b5cf6"')
+    s = s.replace('fill="#FFA24A"', 'fill="#3d9bff"')
+    assert "#FF" not in s.upper().replace("#FFFFFF", "")
+    return s
+
+
 # ---------------------------------------------------------------- vistas previas del tema
 def icon(name, size):
     for d in (APPS, os.path.join(SYS, "usr/share/icons/hicolor/scalable/apps"), "/usr/share/icons/Papirus/64x64/apps",
@@ -488,6 +500,8 @@ def main():
     for name, svg in app_icons().items():
         with open(os.path.join(APPS, name + ".svg"), "w") as f:
             f.write(svg)
+    with open(os.path.join(APPS, "djos.svg"), "w") as f:
+        f.write(glass_mark())
 
     for sub in ("widgets", "translucent/widgets", "opaque/widgets"):
         os.makedirs(os.path.join(PSTYLE, sub), exist_ok=True)

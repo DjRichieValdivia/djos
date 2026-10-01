@@ -21,4 +21,4 @@ library=org.kde.kwin.aurorae.v2
 theme=__aurorae__svg__DJOSGlass
 
 [ksplashrc][KSplash]
-Theme=org.djos.desktop
+Theme=org.djos.glass

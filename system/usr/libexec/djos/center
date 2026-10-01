@@ -90,7 +90,7 @@ def hardware():
         if re.search(r"VGA|3D controller|Display", line):
             g = line.split(": ", 1)[-1]
             if "NVIDIA" in g or not gpu:
-                gpu = re.sub(r"\s*\(rev [0-9a-f]+\)$", "", g)
+                gpu = pretty_gpu(re.sub(r"\s*\(rev [0-9a-f]+\)$", "", g))
     plasma = out(["plasmashell", "--version"]).split()
     return {"cpu": cpu, "memory": mem, "gpu": gpu, "plasma": plasma[-1] if plasma else ""}
 
@@ -208,6 +208,17 @@ def pw_settings():
     return s
 
 
+def pretty_gpu(g):
+    """el nombre de la placa de video como se la conoce: "NVIDIA Corporation GA102 [GeForce RTX 3090]" →
+    "NVIDIA GeForce RTX 3090" (lspci pone entre corchetes el nombre comercial; el último es el del modelo)"""
+    vendor = "NVIDIA" if "NVIDIA" in g else "AMD" if re.search(r"\bAMD\b|\bATI\b|Advanced Micro", g) else \
+        "Intel" if "Intel" in g else ""
+    names = [b for b in re.findall(r"\[([^\]]+)\]", g) if b not in ("AMD/ATI",)]
+    if not names:
+        return g
+    return names[-1] if not vendor or names[-1].startswith(vendor) else f"{vendor} {names[-1]}"
+
+
 def card_rates(n):
     """las frecuencias que la placa acepta: las USB las dicen en stream*, las de la placa base en su codec"""
     rates = set()
@@ -218,6 +229,15 @@ def card_rates(n):
         for f in glob.glob(f"/proc/asound/card{n}/codec#*"):
             for m in re.finditer(r"^\s*rates \[[^]]*\]: ([0-9 ]+)$", read(f), re.M):
                 rates.update(int(x) for x in m.group(1).split())
+    # HDMI / DisplayPort: el que decide es el monitor (su ELD; los de PC suelen aceptar hasta 48 kHz)
+    eld = set()
+    for f in glob.glob(f"/proc/asound/card{n}/eld#*"):
+        e = read(f)
+        if re.search(r"^monitor_present\s+1", e, re.M) and re.search(r"^eld_valid\s+1", e, re.M):
+            for m in re.finditer(r"^sad\d+_rates\s+\[[^]]*\]\s*([0-9 ]+)$", e, re.M):
+                eld.update(int(x) for x in m.group(1).split())
+    if eld and rates & eld:
+        rates &= eld
     return sorted(r for r in rates if r in ALL_RATES) or [44100, 48000, 88200, 96000]
 
 
@@ -362,6 +382,12 @@ class Backend(QObject):
     def _conf_value(self, key, default):
         m = re.search(re.escape(key) + r"\s*=\s*(\d+)", read(PW_USER_CONF))
         return int(m.group(1)) if m else default
+
+    @Slot(result=str)
+    def audioNow(self):
+        """lo que suena ahora en cada placa, con la latencia de verdad (el buffer más el margen de PipeWire): lo mismo
+        que muestra la barra de arriba (audio-now, ~50 ms)"""
+        return out(["/usr/libexec/djos/audio-now"], timeout=5).strip() or "{}"
 
     @Slot(result=str)
     def soundCards(self):

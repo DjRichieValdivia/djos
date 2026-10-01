@@ -61,7 +61,10 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
   `~/.config/wireplumber/wireplumber.conf.d/60-djos-sound-cards.conf`, choices in `~/.config/djos/sound-cards.json`;
   applying restarts WirePlumber and is refused while a set plays) with the resulting latency (buffer + margin) / rate.
   `/usr/libexec/djos/audio-now` prints what plays now (per open output: rate, buffer incl. margin, ms, owner, main;
-  `set` while a set plays) for the top-bar widget. WirePlumber never
+  `set` while a set plays; `richiedj` = what Richie DJ 1.10+ publishes once a second in
+  `$XDG_RUNTIME_DIR/richiedj-status.json`: device, type, rate, buffer, latencyMs, dropouts, cpu, playing, recording)
+  for the top-bar widget and the DJOS Center overview. HDMI/DisplayPort cards only offer the rates the monitor's ELD
+  accepts (`/proc/asound/cardN/eld#*`, usually up to 48 kHz). WirePlumber never
   suspends ALSA outputs (`52-djos-no-suspend.conf`, `session.suspend-timeout-seconds = 0`: closing/reopening after
   5 s of silence popped on every new sound); webcam microphones (`device.form-factor = "webcam"`) get a low priority
   so the audio interface is the default input (`53-djos-webcam-mic.conf`; a user's own choice still wins). Users are in groups `audio` (rtprio 95, memlock unlimited,
@@ -112,8 +115,9 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
   accent): a transparent top bar (the DJOS logo opens the DJOS Launchpad `org.djos.launchpad`, also Meta and the dock
   tile: full-screen grid from `/usr/libexec/djos/launchpad-apps`, search, pages, drag to reorder, right-click Add to
   Dock / Hide, power buttons; it changes the dock's launchers through `evaluateScript`; the active app's menu
-  `org.kde.plasma.appmenu`, the DJOS Stats widget `org.djos.stats` — audio latency of the output in use, CPU, GPU,
-  RAM, CPU temperature from ksystemstats sensors, "SET" while a set plays; click for details, right-click to choose —,
+  `org.kde.plasma.appmenu`, the DJOS Stats widget `org.djos.stats` — audio latency of the output in use (Richie DJ's
+  own latency and a DROPS counter, red for a minute after a new dropout, while Richie DJ is open), CPU, GPU, RAM, CPU
+  temperature from ksystemstats sensors, "SET" while a set plays; click for details, right-click to choose —,
   tray, clock) and the DJOS dock `org.djos.dock` (`/usr/share/plasma/plasmoids/
   org.djos.dock`, QML on `org.kde.taskmanager` TasksModel: macOS-style magnification (icons drawn once at full size
   and scaled on the GPU), app name label, running dot / blue pill for the active app, launch bounce, right-click
@@ -126,7 +130,9 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
   it from KDE's gtkconfig only after a KConfig change signal); magic lamp minimize. The classic `org.djos.desktop`
   stays in the theme picker. Icons `Papirus-Dark-DJOS` (Papirus' blue folders; `FOLDER_COLOR`
   in `branding/gen-links.sh`), fonts Inter / JetBrains Mono, wallpapers
-  `/usr/share/wallpapers/DJOS*`, splash, Plymouth theme `djos`. Art: `branding/gen-glass.py` (decoration, Plasma
+  `/usr/share/wallpapers/DJOS*`, splash (DJOS Glass has its own: black, white logo, thin white bar), Plymouth theme
+  `djos` (white logo on black), login screen with the DJOS-Glass wallpaper, Konsole scheme `DJOS` (neutral greys). The
+  `djos` icon in `Papirus-Dark-DJOS` is the blue-violet Glass logo (the orange one stays in hicolor). Art: `branding/gen-glass.py` (decoration, Plasma
   style, app icon tiles, wallpaper, previews) and `branding/gen-links.sh` (icon links). `djos-desktop.service` (user) applies the look once per user
   and design version (`~/.local/state/djos/desktop-v4`) and sets each monitor to its highest refresh rate
   (`display-setup`). Plasma 6 writes a global theme's values to `~/.config/kdedefaults/`: a key in the user's own
