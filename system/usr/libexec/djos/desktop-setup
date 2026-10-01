@@ -4,7 +4,8 @@
 #      barra de tareas y fondo, favoritos del menú, pantalla de bloqueo, perfil de Konsole, avisos en pantalla
 #      completa. Si después el usuario cambia algo, se respeta (solo se vuelve a aplicar si sube V).
 #   2. Richie DJ fijo en la barra cuando la app llega después (una vez; si el usuario lo saca, se respeta)
-#   3. display-setup: cada monitor nuevo a su frecuencia más alta
+#   3. la barra en la pantalla principal (una vez; hasta DJOS 2.2.0 podía quedar en la secundaria)
+#   4. display-setup: cada monitor nuevo a su frecuencia más alta
 # Para volver al escritorio de Fedora: plasma-apply-lookandfeel -a org.fedoraproject.fedora.desktop --resetLayout
 set -u
 V=2
@@ -134,10 +135,21 @@ pin_richiedj() {
     touch "$state/richiedj-pinned"
 }
 
-if [ ! -e "$marker" ] || { [ ! -e "$state/richiedj-pinned" ] && [ -e "$rdj_desktop" ]; }; then
+# la barra de DJOS (hasta 2.2.0) se armaba en la pantalla del cursor: a la principal, una sola vez. Con un solo
+# monitor no hay nada que mover; si después el usuario la pasa a otra pantalla, se respeta
+panel_primary=$state/panel-primary-v1
+if [ -e "$marker" ] && [ ! -e "$panel_primary" ] && \
+   [ "$(kscreen-doctor -j 2> /dev/null | jq '[.outputs[] | select(.enabled and .connected)] | length' 2> /dev/null)" = 1 ]; then
+    touch "$panel_primary"
+fi
+
+if [ ! -e "$marker" ] || [ ! -e "$panel_primary" ] || { [ ! -e "$state/richiedj-pinned" ] && [ -e "$rdj_desktop" ]; }; then
     if plasma_ready; then
         if [ ! -e "$marker" ]; then
-            apply_look && touch "$marker"
+            apply_look && touch "$marker" && touch "$panel_primary"   # el diseño nuevo ya la pone en la principal
+        fi
+        if [ -e "$marker" ] && [ ! -e "$panel_primary" ]; then
+            plasma_script /usr/share/djos/panel-to-primary.js && touch "$panel_primary"
         fi
         if [ -e "$marker" ] && [ ! -e "$state/richiedj-pinned" ] && [ -e "$rdj_desktop" ]; then
             pin_richiedj

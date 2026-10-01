@@ -7,6 +7,9 @@ for (var i = 0; i < old.length; ++i)
     old[i].remove();
 
 var panel = new Panel;
+// en la pantalla principal: si no, Plasma la pone en la del cursor (con dos monitores, a veces en el secundario).
+// La pantalla 0 de Plasma es siempre la principal (Configuración > Pantalla)
+try { panel.screen = 0; } catch (e) { }
 panel.location = "bottom";
 panel.height = 2 * Math.round(gridUnit * 1.25);
 try { panel.floating = true; } catch (e) { }
