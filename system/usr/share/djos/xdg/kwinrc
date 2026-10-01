@@ -2,7 +2,10 @@
 # minimizar, maximizar y cerrar en la punta),
 # sin bordes gruesos, minimizar con la "lámpara mágica", sin "sacudir el mouse para agrandarlo" y sin teclado en
 # pantalla (Fedora lo trae prendido en /usr/share/kde-settings/kde-profile/default/xdg/kwinrc; esto manda sobre eso).
-# Los botones van para todos los temas (KDE no deja que cada tema traiga los suyos)
+# Los botones van para todos los temas (KDE no deja que cada tema traiga los suyos).
+# Sin la esquina de arriba a la izquierda que abre la Vista general: ahí está el logo de DJOS (el Launchpad) y al ir a
+# hacerle clic se abría sola (en pleno set, todas las ventanas se achicaban). Meta+W la sigue abriendo; la esquina se
+# puede volver a poner en Configuración > Bordes de pantalla (9 = ninguna esquina)
 [org.kde.kdecoration2]
 BorderSize=None
 BorderSizeAuto=false
@@ -22,3 +25,6 @@ squashEnabled=false
 [Wayland]
 InputMethod=
 VirtualKeyboardEnabled=false
+
+[Effect-overview]
+BorderActivate=9

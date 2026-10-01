@@ -133,7 +133,8 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
   blur/contrast, 12 px rounded popups; the rest falls back to Breeze); colors `DJOSGlass`; window decoration Aurorae
   v2 `__aurorae__svg__DJOSGlass` (`/usr/share/aurorae/themes/DJOSGlass`, colored round buttons on the right in
   Windows order: `ButtonsOnRight=IAX` in `/etc/xdg/kwinrc`, which is global for every theme; GTK apps and Chrome get
-  it from KDE's gtkconfig only after a KConfig change signal); magic lamp minimize. The classic `org.djos.desktop`
+  it from KDE's gtkconfig only after a KConfig change signal); magic lamp minimize; no top-left hot corner (the
+  Overview opened when reaching for the DJOS logo: `[Effect-overview] BorderActivate=9`; Meta+W still opens it). The classic `org.djos.desktop`
   stays in the theme picker. Icons `Papirus-Dark-DJOS` (Papirus' blue folders; `FOLDER_COLOR`
   in `branding/gen-links.sh`), fonts Inter / JetBrains Mono, wallpapers
   `/usr/share/wallpapers/DJOS*`, splash (DJOS Glass has its own: black, white logo, thin white bar), Plymouth theme
