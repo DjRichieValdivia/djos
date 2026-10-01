@@ -5,7 +5,7 @@
 #      completa. Si después el usuario cambia algo, se respeta (solo se vuelve a aplicar si sube V).
 #   2. Richie DJ fijo en la barra cuando la app llega después (una vez; si el usuario lo saca, se respeta)
 #   3. la barra en la pantalla principal (una vez; hasta DJOS 2.2.0 podía quedar en la secundaria)
-#   4. retoques de la barra (una vez, DJOS 2.2.2): la bandeja sin el clima y el menú con el logo de Plasma
+#   4. retoques de la barra (una vez cada uno): la bandeja sin el clima (2.2.2) y el menú con la grilla de apps (2.2.3)
 #   5. display-setup: cada monitor nuevo a su frecuencia más alta
 # Para volver al escritorio de Fedora: plasma-apply-lookandfeel -a org.fedoraproject.fedora.desktop --resetLayout
 set -u
@@ -144,10 +144,12 @@ if [ -e "$marker" ] && [ ! -e "$panel_primary" ] && \
     touch "$panel_primary"
 fi
 
-# retoques de la barra (panel-tweaks.js): también después de armar la barra nueva, que recién ahí tiene la bandeja
+# retoques de la barra (panel-tweaks.js, menu-icon.js): también después de armar la barra nueva, que recién ahí
+# tiene la bandeja
 panel_tweaks=$state/panel-tweaks-v1
+menu_icon=$state/menu-icon-v2
 
-if [ ! -e "$marker" ] || [ ! -e "$panel_primary" ] || [ ! -e "$panel_tweaks" ] || \
+if [ ! -e "$marker" ] || [ ! -e "$panel_primary" ] || [ ! -e "$panel_tweaks" ] || [ ! -e "$menu_icon" ] || \
    { [ ! -e "$state/richiedj-pinned" ] && [ -e "$rdj_desktop" ]; }; then
     if plasma_ready; then
         if [ ! -e "$marker" ]; then
@@ -158,6 +160,9 @@ if [ ! -e "$marker" ] || [ ! -e "$panel_primary" ] || [ ! -e "$panel_tweaks" ] |
         fi
         if [ -e "$marker" ] && [ ! -e "$panel_tweaks" ]; then
             plasma_script /usr/share/djos/panel-tweaks.js && touch "$panel_tweaks"
+        fi
+        if [ -e "$marker" ] && [ ! -e "$menu_icon" ]; then
+            plasma_script /usr/share/djos/menu-icon.js && touch "$menu_icon"
         fi
         if [ -e "$marker" ] && [ ! -e "$state/richiedj-pinned" ] && [ -e "$rdj_desktop" ]; then
             pin_richiedj

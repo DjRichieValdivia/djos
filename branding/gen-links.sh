@@ -105,7 +105,7 @@ done < "$list" | git update-index --add --index-info || die "no pude anotar los 
     cat <<'EOF'
 # DJOS: Papirus Dark con carpetas naranjas (lo mismo que hace papirus-folders, pero sin tocar los archivos de
 # Papirus). Es una copia completa de Papirus-Dark hecha de enlaces (las carpetas azules apuntan a las naranjas), y en
-# scalable/apps están los íconos propios de DJOS para Dolphin, Discover y Configuración (naranjas). Lo arma
+# scalable/apps están los íconos propios de DJOS: Dolphin, Discover y Configuración (naranjas) y Richie DJ (un vinilo). Lo arma
 # branding/gen-links.sh a partir del index.theme de Papirus-Dark: no editarlo a mano.
 EOF
     awk '
@@ -115,7 +115,7 @@ EOF
         /^Directories=/ && !d++ { print $0 ",scalable/apps"; next }
         { print }
     ' "$PD/index.theme"
-    printf '\n# íconos de apps propios de DJOS (Dolphin, Discover, Configuración) en naranja, con el resto del aspecto\n'
+    printf '\n# íconos de apps propios de DJOS (Dolphin, Discover, Configuración en naranja; Richie DJ, un vinilo)\n'
     printf '[scalable/apps]\nContext=Applications\nSize=48\nMinSize=16\nMaxSize=512\nType=Scalable\n'
 } > "$repo/$theme/index.theme" || die "no pude escribir index.theme"
 grep -q '^Directories=.*22x22/panel.*,scalable/apps$' "$repo/$theme/index.theme" || die "index.theme quedó mal"

@@ -1,8 +1,6 @@
-// DJOS: retoques de la barra de tareas (lo corre "desktop-setup" una sola vez por usuario, DJOS 2.2.2):
-//   - la bandeja sin el clima (Plasma 6 lo trae; queda en "knownItems" para que no vuelva solo; se puede volver a
-//     agregar desde la configuración de la bandeja)
-//   - el menú con el logo de Plasma en vez del de DJOS (solo si todavía tiene el de DJOS: si el usuario eligió otro,
-//     se respeta)
+// DJOS: la bandeja de la barra de tareas sin el clima (lo corre "desktop-setup" una sola vez por usuario, DJOS 2.2.2).
+// Plasma 6 lo trae; queda en "knownItems" para que no vuelva solo; se puede volver a agregar desde la configuración
+// de la bandeja. El ícono del menú va aparte (menu-icon.js)
 function list(v) {
     if (typeof v === "string")
         return v.length > 0 ? v.split(",") : [];
@@ -23,10 +21,6 @@ for (var i = 0; i < all.length; ++i) {
                 known.push("org.kde.plasma.weather");
                 w.writeConfig("knownItems", known);
             }
-        } else if (w.type === "org.kde.plasma.kickoff") {
-            w.currentConfigGroup = ["General"];
-            if (w.readConfig("icon", "") === "djos")
-                w.writeConfig("icon", "start-here-kde-plasma");
         }
     }
 }

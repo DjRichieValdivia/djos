@@ -168,7 +168,8 @@ from `/usr/share/djos/xdg`, see the table above; the other `/etc` files have DJO
 hiding and the DJ-first menu (DJ, Produce, Edit and Tag, Record and Stream first, `/usr/share/desktop-directories/
 djos-*.directory`; Education and Science, which only hold LibreOffice Math, hidden; Fedora KDE's three games out of
 Games) through `/etc/xdg/menus/applications-merged/djos.menu` (no editing of other packages' .desktop files). Own app
-icons in `Papirus-Dark-DJOS/scalable/apps` (Dolphin, Discover, System Settings in orange). Login screen:
+icons in `Papirus-Dark-DJOS/scalable/apps` (Dolphin, Discover, System Settings in orange; Richie DJ as a vinyl record,
+overriding the app's own hicolor `richiedj` icon). Login screen:
 `/usr/lib/plasmalogin/plasmalogin.conf.d/zz-djos.conf`. Discover's own notifications are off
 (`RequiredNotificationInterval[$i]=-1`: DJOS has its own notifier, and Discover would offer a new Fedora release on
 day one), and `/usr/share/polkit-1/rules.d/10-djos-release-gate.rules` denies PackageKit's `upgrade-system` and

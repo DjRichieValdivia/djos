@@ -1,6 +1,6 @@
 # DJOS: Papirus Dark con carpetas naranjas (lo mismo que hace papirus-folders, pero sin tocar los archivos de
 # Papirus). Es una copia completa de Papirus-Dark hecha de enlaces (las carpetas azules apuntan a las naranjas), y en
-# scalable/apps están los íconos propios de DJOS para Dolphin, Discover y Configuración (naranjas). Lo arma
+# scalable/apps están los íconos propios de DJOS: Dolphin, Discover y Configuración (naranjas) y Richie DJ (un vinilo). Lo arma
 # branding/gen-links.sh a partir del index.theme de Papirus-Dark: no editarlo a mano.
 [Icon Theme]
 Name=Papirus-Dark-DJOS
@@ -1093,7 +1093,7 @@ Size=32
 Scale=2
 Type=Fixed
 
-# íconos de apps propios de DJOS (Dolphin, Discover, Configuración) en naranja, con el resto del aspecto
+# íconos de apps propios de DJOS (Dolphin, Discover, Configuración en naranja; Richie DJ, un vinilo)
 [scalable/apps]
 Context=Applications
 Size=48
