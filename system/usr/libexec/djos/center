@@ -375,6 +375,7 @@ class Backend(QObject):
             "rtLimits": rtprio >= 90 and (memlock == -1 or memlock > 1 << 30),
             "kernelRt": "threadirqs" in cmdline and "preempt=full" in cmdline,
             "irqThreads": rt_threads,
+            "irqbalance": subprocess.run(["systemctl", "-q", "is-active", "irqbalance.service"]).returncode == 0,
             "usbShared": [f"{w} and {c}" for w, c in usb_sharing()],
             "tuned": out(["tuned-adm", "active"]).split(":")[-1].strip(),
         })

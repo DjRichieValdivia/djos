@@ -27,7 +27,7 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
   a new Fedora release only 4 weeks after it ships and when RPM Fusion has the NVIDIA driver for it.
   Status: `/usr/libexec/djos/update status` (JSON in `/var/lib/djos/update-status.json`).
 - `gig-guard` (exit 1 = a set is playing: Richie DJ holds `/dev/cpu_dma_latency`) blocks automatic maintenance
-  (`dnf-makecache`, `fstrim`, the DJOS updater). Never run big updates while the user may be playing.
+  (`dnf-makecache`, `fstrim`, `plocate-updatedb`, `raid-check`, the DJOS updater). Never run big updates while the user may be playing.
 - Richie DJ and the optimizer download anonymously from ghcr.io (public images). Only if a registry asks for access
   is `/etc/djos/registry-auth.json` (root only, created by `/usr/libexec/djos/connect`, a GitHub login in the
   browser) used. Never print or copy that token.
@@ -50,7 +50,9 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
 - tuned profiles `djos` (latency-performance, HDA codec never powered down) and `djos-balanced`; Plasma's power
   profiles map to them through `/etc/tuned/ppd.conf` (tuned-ppd's file, original saved in `/var/lib/djos/backup`).
 - `djos-rtirq` gives the USB controller that hosts a sound card FIFO 90 and the onboard HDA FIFO 85, on a P-core;
-  other IRQs go to E-cores (re-run on hot-plug by `91-djos-rtirq.rules`).
+  other IRQs (and new ones: `/proc/irq/default_smp_affinity`) go to E-cores (re-run on hot-plug by
+  `91-djos-rtirq.rules`). `irqbalance` is turned off (on install, and once on upgrade since 2.5.2; restored to
+  Fedora's default on removal): it moved those interrupts every 10 s.
 - PipeWire 48 kHz, quantum 256 (min 32) (`/usr/share/pipewire/*.conf.d/50-djos.conf`); the rate is fixed
   (`allowed-rates = [ 48000 ]`: switching rates reconfigures the card and many cards "pop"; everything else is
   resampled at quality 10). DJOS Center > Audio sets the rate, buffer and an optional "follow the rate of what's

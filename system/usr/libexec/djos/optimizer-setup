@@ -30,8 +30,13 @@ INITRD_REBUILD=/run/djos-optimizer-initramfs      # remove lo pide, el %postun d
 # solo en la primera instalación (si el usuario los vuelve a prender, se respeta):
 #   intel_lpmd  mueve trabajo a los núcleos de bajo consumo para ahorrar energía: pelea con la prioridad del audio
 #   nfs-client  carpetas de red NFS: una PC de DJ no las usa
+#   irqbalance  reparte las interrupciones entre núcleos cada 10 s: deshacía lo de djos-rtirq (la del USB de la placa
+#               de sonido en un núcleo P con FIFO 90, las demás en los E) y llevaba otras a los núcleos del audio
 # CUPS no se toca: en Fedora 44 ya arranca solo cuando se imprime (cups.socket), así la impresora sigue andando.
-FIRST_DISABLE="intel_lpmd.service nfs-client.target"
+FIRST_DISABLE="intel_lpmd.service nfs-client.target irqbalance.service"
+# los que llegaron a FIRST_DISABLE después: se apagan una vez al actualizar, en las PCs que ya tenían DJOS
+#   (2.5.2) irqbalance
+UPGRADE_DISABLE="irqbalance.service"
 # enmascarados (también solo al instalar):
 #   nvidia-powerd  ahorro de energía de laptops con NVIDIA (en una de escritorio solo llena el registro de errores)
 #   plasma-kaccess (del usuario) teclas especiales de accesibilidad: evita que Shift apretado 5 veces en pleno set
@@ -326,14 +331,30 @@ undo_tuned() {
 }
 
 # --- servicios (apagados y enmascarados solo en la primera instalación; se anotan para devolverlos)
+turn_off() {   # turn_off <servicio>: apagado y anotado (al desinstalar vuelve a lo que Fedora trae por defecto)
+    local u=$1
+    [ "$(systemctl is-enabled "$u" 2> /dev/null)" = enabled ] || return 0
+    list_add disabled-units "$u"
+    run systemctl disable --quiet "$u" && log "turned off $u"
+    live && run systemctl stop "$u" 2> /dev/null
+    return 0
+}
+do_services_upgrade() {   # una sola vez por servicio y por PC (si el usuario lo vuelve a prender, se respeta)
+    local u
+    for u in $UPGRADE_DISABLE; do
+        [ -e "$STATE/off-${u%.service}" ] && continue
+        turn_off "$u"
+        mark "off-${u%.service}" 1
+        # irqbalance deja las interrupciones donde las puso: djos-rtirq las vuelve a acomodar ya
+        [ "$u" = irqbalance.service ] && live && run systemctl try-restart djos-rtirq.service 2> /dev/null
+    done
+    return 0
+}
 do_services_first() {
-    local u st
+    local u
     for u in $FIRST_DISABLE; do
-        st=$(systemctl is-enabled "$u" 2> /dev/null)
-        [ "$st" = enabled ] || continue
-        list_add disabled-units "$u"
-        run systemctl disable --quiet "$u" && log "turned off $u"
-        live && run systemctl stop "$u" 2> /dev/null
+        turn_off "$u"
+        case " $UPGRADE_DISABLE " in *" $u "*) mark "off-${u%.service}" 1 ;; esac
     done
     for u in $FIRST_MASK; do
         [ "$(systemctl is-enabled "$u" 2> /dev/null)" = masked ] && continue
@@ -823,6 +844,7 @@ case "$cmd" in
         do_groups upgrade
         do_kargs upgrade
         do_tuned upgrade
+        do_services_upgrade
         do_plymouth upgrade
         do_windows
         do_nvidia_refresh

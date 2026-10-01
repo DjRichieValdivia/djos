@@ -394,6 +394,11 @@ PageBase {
             detail: ok ? page.audio.irqThreads.join(",  ") : "DJOS gives its USB port top priority as soon as you plug it in."
         }
         Check {
+            ok: page.audio.irqbalance !== true
+            text: ok ? "Interrupts stay where DJOS puts them" : "irqbalance moves the sound card interrupt between cores"
+            detail: ok ? "" : "DJOS turns it off when it updates. Until then: sudo systemctl disable --now irqbalance"
+        }
+        Check {
             ok: !page.audio.usbShared || page.audio.usbShared.length === 0
             text: ok ? "Your audio interface has its USB controller to itself" : "A webcam shares the USB controller with your audio interface"
             detail: ok ? "" : page.audio.usbShared.join(", ") + ": plug one of them into a port on another controller (for example a USB-C port), so the camera can't cause dropouts."

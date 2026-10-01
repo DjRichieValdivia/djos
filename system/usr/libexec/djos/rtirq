@@ -16,6 +16,12 @@ if [ -n "$P" ] && [ -n "$E" ]; then
     for d in /proc/irq/[0-9]*; do
         echo "$E" > "$d/smp_affinity_list" 2>/dev/null   # las del disco NVMe las maneja el núcleo: se ignoran
     done
+    # y las que aparezcan después (un USB o una placa que se enchufa) también arrancan en los E: la máscara en hexa
+    mask=0
+    for r in ${E//,/ }; do
+        for ((i = ${r%-*}; i <= ${r#*-}; i++)); do [ "$i" -lt 63 ] && mask=$((mask | (1 << i))); done
+    done
+    [ "$mask" != 0 ] && printf '%x\n' "$mask" > /proc/irq/default_smp_affinity 2>/dev/null
 fi
 
 boost() {   # boost <dispositivo PCI> <prioridad>

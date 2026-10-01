@@ -23,6 +23,12 @@ t=$(tuned-adm active 2>/dev/null | sed 's/.*: //'); [[ $t == djos* ]] && pass "p
 [ "$(ulimit -r)" -ge 90 ] 2>/dev/null && pass "real-time priority allowed for your user ($(ulimit -r))" || bad "no real-time priority for your user (log out and back in)"
 irq=$(ps -eLo rtprio=,comm= | awk '$1 >= 85 && $2 ~ /^irq\// { printf "%s (FIFO %s)  ", $2, $1 }')
 [ -n "$irq" ] && pass "sound card interrupts at top priority: $irq" || bad "no sound card interrupt boosted (is the audio interface connected?)"
+# irqbalance mueve las interrupciones cada 10 s: deshace dónde las pone DJOS (la del audio en un núcleo de rendimiento)
+if systemctl -q is-active irqbalance.service 2>/dev/null; then
+    bad "irqbalance is running and moves the sound card interrupt between cores (sudo systemctl disable --now irqbalance)"
+else
+    pass "interrupts stay where DJOS puts them (irqbalance off)"
+fi
 pw=$(pw-metadata -n settings 2>/dev/null | grep -oE "clock\.(rate|quantum)' value:'[0-9]+" | sed "s/' value:'/=/" | tr '\n' ' ')
 echo "  [..]   PipeWire: $pw"
 # lo que hace "pop" en los parlantes: la placa que se cierra en silencio y se vuelve a abrir, o que cambia de frecuencia
