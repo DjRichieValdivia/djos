@@ -97,6 +97,10 @@ Recommends:     haruna
 Recommends:     qpwgraph
 # DJOS Center > Performance > "GPU monitor" (no viene con Fedora KDE)
 Recommends:     nvtop
+# Richie DJ: separación de stems en los gráficos integrados de Intel (OpenVINO usa su driver de cómputo OpenCL; sin
+# él la separación va en el procesador, mucho más lenta). En PCs sin gráficos de Intel no hace nada
+Recommends:     intel-opencl
+Recommends:     ocl-icd
 # plugins LV2 / VST3 / CLAP
 Recommends:     lsp-plugins-lv2
 Recommends:     lsp-plugins-vst3

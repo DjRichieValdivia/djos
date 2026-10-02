@@ -90,6 +90,11 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
 - Settings/library: `~/.config/Richie DJ/`; recordings: `~/Documents/Richie DJ/Recordings/`.
 - Audio output "ALSA Direct" opens the card directly (it asks PipeWire to release it via ReserveDevice1).
 
+## Intel graphics (no NVIDIA)
+- Richie DJ separates stems on Intel integrated graphics (Iris Xe...) with OpenVINO, through Intel's OpenCL compute
+  driver: `intel-opencl` (+ `intel-igc-libs`, `ocl-icd`), recommended by `djos-optimizer` since 2.5.8. Without it the
+  separation runs on the CPU (much slower). Check: `ls /etc/OpenCL/vendors/` (intel.icd).
+
 ## NVIDIA
 - RPM Fusion `akmod-nvidia` + `xorg-x11-drv-nvidia-cuda`; akmods rebuilds the driver for every new kernel. After
   an offline update (Install & restart / shut down) `djos-nvidia-offline.service` builds it before the restart.
