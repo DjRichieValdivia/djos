@@ -158,7 +158,14 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
 - DJOS Center > Music Disks (`/usr/libexec/djos/setup-music-disk`) adds read-only automounts at
   `/mnt/music-<label>` (fstab lines tagged `# djos-music`). The disk with Fedora is never offered.
 
-## DJ controllers whose sound card Linux doesn't know (e.g. Pioneer DDJ-FLX10, 2b73:0041)
+## Pioneer DDJ-FLX10
+- Its jog screens show "NO AUDIO DRIVER" ~3 s after plug-in unless the host does one read-only vendor control
+  transfer (0xC0, bRequest 0, wIndex 0xC001, wLength 2: the firmware version). `91-djos-flx10.rules` runs
+  `/usr/libexec/djos/flx10-wake` (Python, root, on every add; by hand: `sudo /usr/libexec/djos/flx10-wake -v`).
+- PipeWire gives it the "pro-audio" profile (`54-djos-dj-controllers.conf`): outputs AUX0-3 (1-2 master, 3-4
+  headphones), not "surround 4.0". Richie DJ's ALSA Direct opens it directly anyway.
+
+## DJ controllers whose sound card Linux doesn't know (e.g. older Pioneer models)
 - Their MIDI works; the audio interface is vendor-specific (class 255). `/usr/libexec/djos/controller-audio status`
   computes the channels of endpoints 0x01/0x82 from `wMaxPacketSize` and, only on an exact match with a kernel
   recipe of the same Pioneer family (DDJ-800, DDJ-SR2, DDJ-RB, DDJ-RR…), `enable` binds snd-usb-audio with that
