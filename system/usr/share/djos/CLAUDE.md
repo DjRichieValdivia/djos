@@ -167,7 +167,13 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
   `/usr/libexec/djos/flx10-wake` (Python, root, on every add; by hand, with apps using its audio closed:
   `sudo /usr/libexec/djos/flx10-wake -v`; `--no-unlock` = screens only).
 - PipeWire gives it the "pro-audio" profile (`54-djos-dj-controllers.conf`): outputs AUX0-3 (1-2 master, 3-4
-  headphones), not "surround 4.0". Richie DJ's ALSA Direct opens it directly anyway.
+  headphones), not "surround 4.0". Richie DJ's ALSA Direct opens it directly anyway. The same file turns PipeWire's
+  timer scheduling back on for its nodes (`api.alsa.disable-tsched = false`): it only runs at 44.1 kHz, so with the
+  graph at 48 / 96 kHz its block shrinks to 64 frames and in IRQ mode every other block arrived empty.
+- Diagnostics: its inputs 1-2 return the master mix (what it gets on outputs 1-2; headphones 3-4 are not in it), so
+  playing a quiet tone and recording 10 channels shows whether the master gets clean audio without anyone listening
+  (`arecord -D hw:DDJFLX10 -c 10 -r 44100 -f S24_3LE`, with PipeWire released by `pw-reserve -n AudioN -r`).
+  With its analog section running, inputs 3-6 and 9-10 show a noise floor near -98 dBFS; all zeros = not running.
 
 ## DJ controllers whose sound card Linux doesn't know (e.g. older Pioneer models)
 - Their MIDI works; the audio interface is vendor-specific (class 255). `/usr/libexec/djos/controller-audio status`
