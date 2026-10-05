@@ -1,11 +1,22 @@
 #!/usr/bin/python3
-# DJOS: saca el "NO AUDIO DRIVER" de las pantallas de los jogs de la Pioneer DDJ-FLX10 (2b73:0041).
+# DJOS: deja andando la Pioneer DDJ-FLX10 (2b73:0041) en Linux, lo que hace el driver oficial al conectarla:
+#  1) el audio: sin una secuencia de 7 comandos del fabricante (control transfers vendor OUT, sin datos) la consola
+#     aparece como placa de sonido pero no saca nada por master ni por auriculares. Se suelta un momento el driver de
+#     audio (snd-usb-audio) de sus interfaces, se mandan los 7 y se vuelve a enganchar (así arma la placa de nuevo);
+#  2) las pantallas de los jogs: sin esto muestran "NO AUDIO DRIVER" (ver abajo).
 # La consola lo muestra ~3 s después de conectarse si la PC no le habla con el protocolo del fabricante. Alcanza con
 # una lectura (SOLO LECTURA: no se le escribe nada): la de su versión de firmware, una "control transfer" de tipo
 # vendor (bmRequestType 0xC0, bRequest 0x00, wValue 0, wIndex 0xC001, wLength 2) -> p. ej. 01 14 = firmware 1.14.
-# Lo corre udev al conectarla (91-djos-flx10.rules, como root). A mano: sudo /usr/libexec/djos/flx10-wake -v
-# Fuente: lo que hace el driver de Windows, documentado en github.com/elvetemedve/nixos-desktop (flx10-wake.c).
+# Lo corre udev al conectarla (91-djos-flx10.rules, como root). A mano (con los programas que usan su audio cerrados):
+#   sudo /usr/libexec/djos/flx10-wake -v      (--no-unlock: sólo lo de las pantallas)
+# Fuentes: lo que hace el driver de Windows, capturado y documentado por otros (github.com/elvetemedve/nixos-desktop
+# flx10-wake.c; github.com/Veezuhz/Mixxx_FLX10_Controller_Mapping, screen-protocol.md "Unlock handshake").
 import ctypes, fcntl, glob, os, sys, time
+
+# la secuencia del driver oficial (bmRequestType 0x40, bRequest 0x03, sin datos): (wValue, wIndex)
+UNLOCK = [(0x0100, 0xC028), (0x0000, 0xC029), (0x0200, 0xC013), (0x0000, 0xC02B),
+          (0x0100, 0xC026), (0x0000, 0xC01D), (0x0100, 0xC027)]
+DRV = "/sys/bus/usb/drivers/snd-usb-audio"
 
 VID, PID = 0x2B73, 0x0041
 verbose = "-v" in sys.argv[1:]
@@ -35,15 +46,76 @@ def is_flx10(path):
     return len(d) == 18 and d[1] == 0x01 and int.from_bytes(d[8:10], "little") == VID and int.from_bytes(d[10:12], "little") == PID
 
 
-def wake(path):
-    buf = (ctypes.c_uint8 * 2)()
-    ct = CtrlTransfer(0xC0, 0x00, 0x0000, 0xC001, 2, 500, ctypes.cast(buf, ctypes.c_void_p))
+def control(fd, rtype, req, value, index, length=0):
+    buf = (ctypes.c_uint8 * max(1, length))()
+    ct = CtrlTransfer(rtype, req, value, index, length, 500, ctypes.cast(buf, ctypes.c_void_p) if length else None)
+    fcntl.ioctl(fd, USBDEVFS_CONTROL, ct)
+    return bytes(buf[:length])
+
+
+def sysfs_of(path):
+    """/dev/bus/usb/BBB/DDD -> /sys/bus/usb/devices/3-3"""
+    bus, dev = int(path.split("/")[-2]), int(path.split("/")[-1])
+    for d in glob.glob("/sys/bus/usb/devices/*"):
+        try:
+            if int(open(d + "/busnum").read()) == bus and int(open(d + "/devnum").read()) == dev:
+                return d
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def audio_interfaces(sysdev):
+    out = []
+    for i in sorted(glob.glob(sysdev + "/*:*")):
+        drv = os.path.join(i, "driver")
+        if os.path.islink(drv) and os.path.basename(os.readlink(drv)) == "snd-usb-audio":
+            out.append(os.path.basename(i))
+    return out
+
+
+def sysfs_write(f, v):
+    try:
+        with open(f, "w") as h:
+            h.write(v)
+        return True
+    except OSError as e:
+        log(f"{f} <- {v}: {e}")
+        return False
+
+
+def unlock(path):
+    sysdev = sysfs_of(path)
+    intfs = audio_interfaces(sysdev) if sysdev else []
+    for i in intfs:
+        sysfs_write(DRV + "/unbind", i)
+    if intfs:
+        time.sleep(0.3)
     fd = os.open(path, os.O_RDWR | os.O_CLOEXEC)
     try:
-        fcntl.ioctl(fd, USBDEVFS_CONTROL, ct)
+        for value, index in UNLOCK:
+            control(fd, 0x40, 0x03, value, index)
+            time.sleep(0.005)
     finally:
         os.close(fd)
-    log(f"{path} -> firmware {buf[0]}.{buf[1]:02x}")
+    log(f"{path}: audio unlock sent")
+    time.sleep(0.5)
+    for i in intfs:
+        # al enganchar la interfaz de control, el driver toma también las demás: esas ya no hace falta
+        if not os.path.islink(os.path.join(sysdev, i, "driver")):
+            sysfs_write(DRV + "/bind", i)
+    if intfs:
+        log(f"snd-usb-audio bound again to {', '.join(intfs)}")
+        time.sleep(0.5)
+
+
+def wake(path):
+    fd = os.open(path, os.O_RDWR | os.O_CLOEXEC)
+    try:
+        fw = control(fd, 0xC0, 0x00, 0x0000, 0xC001, 2)
+    finally:
+        os.close(fd)
+    log(f"{path} -> firmware {fw[0]}.{fw[1]:02x}")
 
 
 def main():
@@ -57,6 +129,12 @@ def main():
         return 1
     ok = True
     for p in paths:
+        if "--no-unlock" not in sys.argv[1:]:
+            try:
+                unlock(p)
+            except OSError as e:
+                log(f"{p}: unlock: {e}")
+                ok = False
         for i in range(3):
             try:
                 wake(p)

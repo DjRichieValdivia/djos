@@ -159,9 +159,13 @@ Reply in the language the user writes in. The UI of DJOS and its apps is English
   `/mnt/music-<label>` (fstab lines tagged `# djos-music`). The disk with Fedora is never offered.
 
 ## Pioneer DDJ-FLX10
+- Audio: without the official driver's 7 vendor OUT control transfers (0x40, bRequest 3, no data; wValue/wIndex
+  0100/C028 0000/C029 0200/C013 0000/C02B 0100/C026 0000/C01D 0100/C027) the card exists but nothing comes out of
+  master or headphones. `flx10-wake` unbinds snd-usb-audio from the FLX10, sends them, binds it again, then:
 - Its jog screens show "NO AUDIO DRIVER" ~3 s after plug-in unless the host does one read-only vendor control
   transfer (0xC0, bRequest 0, wIndex 0xC001, wLength 2: the firmware version). `91-djos-flx10.rules` runs
-  `/usr/libexec/djos/flx10-wake` (Python, root, on every add; by hand: `sudo /usr/libexec/djos/flx10-wake -v`).
+  `/usr/libexec/djos/flx10-wake` (Python, root, on every add; by hand, with apps using its audio closed:
+  `sudo /usr/libexec/djos/flx10-wake -v`; `--no-unlock` = screens only).
 - PipeWire gives it the "pro-audio" profile (`54-djos-dj-controllers.conf`): outputs AUX0-3 (1-2 master, 3-4
   headphones), not "surround 4.0". Richie DJ's ALSA Direct opens it directly anyway.
 

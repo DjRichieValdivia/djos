@@ -1,4 +1,5 @@
-# DJOS: Pioneer / AlphaTheta DDJ-FLX10, saca el "NO AUDIO DRIVER" de las pantallas de los jogs al conectarla (una
+# DJOS: Pioneer / AlphaTheta DDJ-FLX10 al conectarla: su audio (la secuencia del driver oficial) y las pantallas de
+# los jogs sin "NO AUDIO DRIVER" (una
 # lectura de solo lectura de su firmware: ver /usr/libexec/djos/flx10-wake)
 ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="2b73", ATTR{idProduct}=="0041", \
   RUN+="/usr/libexec/djos/flx10-wake"
